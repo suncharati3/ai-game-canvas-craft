@@ -1,4 +1,3 @@
-
 # minimal FastAPI wrapper around GPT-Engineer
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +6,7 @@ from subprocess import run, Popen, PIPE
 from pydantic import BaseModel
 import uuid, os, zipfile, shutil, json, asyncio
 import io, base64
+from supabase import create_client
 
 app = FastAPI()
 BASE = "/tmp/projects"
@@ -14,9 +14,17 @@ BASE = "/tmp/projects"
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://lovable.dev", "https://*.lovableproject.com"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+# Initialize Supabase client with service role key
+supabase = create_client(
+    os.environ["SUPABASE_URL"],
+    os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    options={"auth": {"persist_session": False}}
 )
 
 class ProjectRequest(BaseModel):
@@ -53,8 +61,21 @@ async def run_gpte(data: ProjectRequest):
                 fp = os.path.join(root, f)
                 z.write(fp, fp.replace(proj_dir + "/", ""))
 
-    # (optional) TODO: upload zip to Supabase Storage
-    return {"jobId": job_id, "download": zip_path}
+    # Upload zip to Supabase Storage
+    with open(zip_path, "rb") as f:
+        supabase.storage.from_("game-builds").upload(
+            f"{job_id}.zip",
+            f,
+            upsert=True
+        )
+
+    # Get signed URL
+    signed = supabase.storage.from_("game-builds").create_signed_url(
+        f"{job_id}.zip",
+        3600  # 1 hour expiry
+    )
+
+    return {"jobId": job_id, "download": signed["signedURL"]}
 
 @app.post("/build")
 async def build(data: BuildRequest, background_tasks: BackgroundTasks):
@@ -192,22 +213,17 @@ async def get_status(job_id: str):
     is_active = job_id in active_builds and active_builds[job_id]
     return {"active": is_active}
 
-# Serve zip files
+# Serve zip files (updated to use signed URLs)
 @app.get("/download/{job_id}")
-def download_zip(job_id: str):
-    zip_path = f"{BASE}/{job_id}.zip"
-    if not os.path.exists(zip_path):
-        return {"error": "File not found"}
-        
-    def iterfile():
-        with open(zip_path, 'rb') as f:
-            yield from f
-            
-    return StreamingResponse(
-        iterfile(),
-        media_type="application/zip",
-        headers={"Content-Disposition": f"attachment; filename={job_id}.zip"}
-    )
+async def download_zip(job_id: str):
+    try:
+        signed = supabase.storage.from_("game-builds").create_signed_url(
+            f"{job_id}.zip",
+            3600  # 1 hour expiry
+        )
+        return {"download": signed["signedURL"]}
+    except Exception as e:
+        return {"error": str(e)}
 
 # Serve dist files
 @app.get("/preview/{job_id}")
