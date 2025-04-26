@@ -1,43 +1,28 @@
+
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 // The storage bucket where all game files will be stored
 const STORAGE_BUCKET = "game-builds";
 
-// Check if the storage bucket exists, if not create it
-export async function ensureStorageBucket() {
+// Check if file exists in storage
+export async function checkFileExists(path: string) {
   try {
-    // Try to get bucket information to check if it exists
     const { data, error } = await supabase
       .storage
-      .getBucket(STORAGE_BUCKET);
-    
-    // If bucket doesn't exist, create it
-    if (error && error.message.includes("not found")) {
-      const { error: createError } = await supabase
-        .storage
-        .createBucket(STORAGE_BUCKET, {
-          public: true,
-          fileSizeLimit: 50 * 1024 * 1024 // 50MB limit
-        });
-        
-      if (createError) {
-        toast.error(`Failed to create bucket: ${createError.message}`);
-        return false;
-      }
+      .from(STORAGE_BUCKET)
+      .list(path.split('/').slice(0, -1).join('/') || '', {
+        limit: 1,
+        search: path.split('/').pop() || ''
+      });
       
-      toast.success(`Created storage bucket: ${STORAGE_BUCKET}`);
-      return true;
-    } else if (error) {
-      toast.error(`Bucket check error: ${error.message}`);
-      return false;
+    if (error) {
+      throw error;
     }
     
-    console.log(`Storage bucket exists: ${STORAGE_BUCKET}`);
-    return true;
+    return data && data.length > 0;
   } catch (error) {
-    console.error("Error ensuring storage bucket:", error);
-    toast.error(`Unexpected error with storage: ${error instanceof Error ? error.message : String(error)}`);
+    console.error("Error checking if file exists:", error);
     return false;
   }
 }
@@ -45,8 +30,6 @@ export async function ensureStorageBucket() {
 // Upload a file to the storage bucket
 export async function uploadFile(path: string, file: File | Blob | ArrayBuffer) {
   try {
-    await ensureStorageBucket();
-    
     const { error } = await supabase
       .storage
       .from(STORAGE_BUCKET)
@@ -73,6 +56,25 @@ export async function getFilePublicUrl(path: string) {
     .getPublicUrl(path);
     
   return data.publicUrl;
+}
+
+// Get a signed URL for a file
+export async function getSignedUrl(path: string, expiresIn = 3600) {
+  try {
+    const { data, error } = await supabase
+      .storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(path, expiresIn);
+      
+    if (error) {
+      throw error;
+    }
+    
+    return data.signedUrl;
+  } catch (error: any) {
+    toast.error(`Failed to get signed URL: ${error.message}`);
+    return null;
+  }
 }
 
 // Download a file from storage

@@ -1,3 +1,4 @@
+
 import { useState, useEffect } from 'react';
 import JSZip from 'jszip';
 import { toast } from 'sonner';
@@ -28,86 +29,8 @@ export function useZipTree(zipUrl: string | null) {
         setLoading(true);
         setError(null);
         
-        if (zipUrl.includes('game-builds')) {
-          const { data, error } = await supabase.storage
-            .from('game-builds')
-            .download(zipUrl.split('game-builds/')[1]);
-          
-          if (error) {
-            throw error;
-          }
-
-          if (!data) {
-            toast.error('No data found in the ZIP file');
-            return;
-          }
-
-          const zip = await JSZip.loadAsync(data);
-          
-          const fileTreeObj: Record<string, TreeNode> = {};
-          const fileContents: Record<string, string> = {};
-          
-          const promises = Object.keys(zip.files).map(async (path) => {
-            const zipObj = zip.files[path];
-            
-            if (zipObj.dir) return;
-            
-            try {
-              const content = await zipObj.async('string');
-              fileContents[path] = content;
-            } catch (e) {
-              console.error(`Error extracting ${path}:`, e);
-              fileContents[path] = `// Error loading file: ${e}`;
-            }
-            
-            const parts = path.split('/');
-            let currentPath = '';
-            
-            parts.forEach((part, i) => {
-              const isLast = i === parts.length - 1;
-              const parentPath = currentPath;
-              currentPath = currentPath ? `${currentPath}/${part}` : part;
-              
-              if (!fileTreeObj[currentPath]) {
-                fileTreeObj[currentPath] = {
-                  name: part,
-                  path: currentPath,
-                  isDirectory: !isLast,
-                  children: isLast ? undefined : []
-                };
-                
-                if (parentPath && fileTreeObj[parentPath]) {
-                  fileTreeObj[parentPath].children?.push(fileTreeObj[currentPath]);
-                }
-              }
-            });
-          });
-          
-          await Promise.all(promises);
-          
-          const rootNodes = Object.values(fileTreeObj).filter(node => {
-            return !node.path.includes('/');
-          });
-          
-          const sortNodes = (nodes: TreeNode[] = []): TreeNode[] => {
-            return [...nodes].sort((a, b) => {
-              if (a.isDirectory && !b.isDirectory) return -1;
-              if (!a.isDirectory && b.isDirectory) return 1;
-              return a.name.localeCompare(b.name);
-            }).map(node => {
-              if (node.children) {
-                return {
-                  ...node,
-                  children: sortNodes(node.children)
-                };
-              }
-              return node;
-            });
-          };
-          
-          setTree(sortNodes(rootNodes));
-          setFiles(fileContents);
-        } else {
+        if (zipUrl.includes('/download/')) {
+          // This is a route to our own server
           const response = await fetch(zipUrl);
           
           if (!response.ok) {
@@ -117,69 +40,39 @@ export function useZipTree(zipUrl: string | null) {
           const blob = await response.blob();
           const zip = await JSZip.loadAsync(blob);
           
-          const fileTreeObj: Record<string, TreeNode> = {};
-          const fileContents: Record<string, string> = {};
+          await processZipContents(zip);
+        }
+        else if (zipUrl.includes('sign/game-builds')) {
+          // This is a signed Supabase URL
+          const response = await fetch(zipUrl);
           
-          const promises = Object.keys(zip.files).map(async (path) => {
-            const zipObj = zip.files[path];
-            
-            if (zipObj.dir) return;
-            
-            try {
-              const content = await zipObj.async('string');
-              fileContents[path] = content;
-            } catch (e) {
-              console.error(`Error extracting ${path}:`, e);
-              fileContents[path] = `// Error loading file: ${e}`;
-            }
-            
-            const parts = path.split('/');
-            let currentPath = '';
-            
-            parts.forEach((part, i) => {
-              const isLast = i === parts.length - 1;
-              const parentPath = currentPath;
-              currentPath = currentPath ? `${currentPath}/${part}` : part;
-              
-              if (!fileTreeObj[currentPath]) {
-                fileTreeObj[currentPath] = {
-                  name: part,
-                  path: currentPath,
-                  isDirectory: !isLast,
-                  children: isLast ? undefined : []
-                };
-                
-                if (parentPath && fileTreeObj[parentPath]) {
-                  fileTreeObj[parentPath].children?.push(fileTreeObj[currentPath]);
-                }
-              }
-            });
-          });
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
           
-          await Promise.all(promises);
+          const blob = await response.blob();
+          const zip = await JSZip.loadAsync(blob);
           
-          const rootNodes = Object.values(fileTreeObj).filter(node => {
-            return !node.path.includes('/');
-          });
+          await processZipContents(zip);
+        }
+        else {
+          // Try to load from Supabase using path
+          const path = zipUrl.split('game-builds/')[1];
+          if (!path) {
+            throw new Error('Invalid storage path');
+          }
           
-          const sortNodes = (nodes: TreeNode[] = []): TreeNode[] => {
-            return [...nodes].sort((a, b) => {
-              if (a.isDirectory && !b.isDirectory) return -1;
-              if (!a.isDirectory && b.isDirectory) return 1;
-              return a.name.localeCompare(b.name);
-            }).map(node => {
-              if (node.children) {
-                return {
-                  ...node,
-                  children: sortNodes(node.children)
-                };
-              }
-              return node;
-            });
-          };
+          console.log('Downloading from path:', path);
+          const { data, error } = await supabase.storage
+            .from('game-builds')
+            .download(path);
           
-          setTree(sortNodes(rootNodes));
-          setFiles(fileContents);
+          if (error || !data) {
+            throw error || new Error('No data returned');
+          }
+          
+          const zip = await JSZip.loadAsync(data);
+          await processZipContents(zip);
         }
       } catch (err) {
         console.error('Error loading ZIP:', err);
@@ -188,6 +81,72 @@ export function useZipTree(zipUrl: string | null) {
       } finally {
         setLoading(false);
       }
+    };
+    
+    const processZipContents = async (zip: JSZip) => {
+      const fileTreeObj: Record<string, TreeNode> = {};
+      const fileContents: Record<string, string> = {};
+      
+      const promises = Object.keys(zip.files).map(async (path) => {
+        const zipObj = zip.files[path];
+        
+        if (zipObj.dir) return;
+        
+        try {
+          const content = await zipObj.async('string');
+          fileContents[path] = content;
+        } catch (e) {
+          console.error(`Error extracting ${path}:`, e);
+          fileContents[path] = `// Error loading file: ${e}`;
+        }
+        
+        const parts = path.split('/');
+        let currentPath = '';
+        
+        parts.forEach((part, i) => {
+          const isLast = i === parts.length - 1;
+          const parentPath = currentPath;
+          currentPath = currentPath ? `${currentPath}/${part}` : part;
+          
+          if (!fileTreeObj[currentPath]) {
+            fileTreeObj[currentPath] = {
+              name: part,
+              path: currentPath,
+              isDirectory: !isLast,
+              children: isLast ? undefined : []
+            };
+            
+            if (parentPath && fileTreeObj[parentPath]) {
+              fileTreeObj[parentPath].children?.push(fileTreeObj[currentPath]);
+            }
+          }
+        });
+      });
+      
+      await Promise.all(promises);
+      
+      const rootNodes = Object.values(fileTreeObj).filter(node => {
+        return !node.path.includes('/');
+      });
+      
+      const sortNodes = (nodes: TreeNode[] = []): TreeNode[] => {
+        return [...nodes].sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1;
+          if (!a.isDirectory && b.isDirectory) return 1;
+          return a.name.localeCompare(b.name);
+        }).map(node => {
+          if (node.children) {
+            return {
+              ...node,
+              children: sortNodes(node.children)
+            };
+          }
+          return node;
+        });
+      };
+      
+      setTree(sortNodes(rootNodes));
+      setFiles(fileContents);
     };
 
     loadZip();

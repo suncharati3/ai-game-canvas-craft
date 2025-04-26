@@ -61,21 +61,33 @@ async def run_gpte(data: ProjectRequest):
                 fp = os.path.join(root, f)
                 z.write(fp, fp.replace(proj_dir + "/", ""))
 
-    # Upload zip to Supabase Storage
-    with open(zip_path, "rb") as f:
-        supabase.storage.from_("game-builds").upload(
+    try:
+        # Upload zip to Supabase Storage
+        with open(zip_path, "rb") as f:
+            file_path = f"{job_id}.zip"
+            upload_result = supabase.storage.from_("game-builds").upload(
+                file_path,
+                f,
+                upsert=True
+            )
+            
+            if hasattr(upload_result, 'error') and upload_result.error:
+                return {"error": str(upload_result.error)}
+
+        # Get signed URL
+        signed_url = supabase.storage.from_("game-builds").create_signed_url(
             f"{job_id}.zip",
-            f,
-            upsert=True
+            3600  # 1 hour expiry
         )
-
-    # Get signed URL
-    signed = supabase.storage.from_("game-builds").create_signed_url(
-        f"{job_id}.zip",
-        3600  # 1 hour expiry
-    )
-
-    return {"jobId": job_id, "download": signed["signedURL"]}
+        
+        if hasattr(signed_url, 'error') and signed_url.error:
+            return {"error": str(signed_url.error)}
+            
+        return {"jobId": job_id, "download": signed_url["signedURL"]}
+    except Exception as e:
+        print(f"Storage error: {str(e)}")
+        # Fallback to direct download if Supabase storage fails
+        return {"jobId": job_id, "download": f"/download/{job_id}"}
 
 @app.post("/build")
 async def build(data: BuildRequest, background_tasks: BackgroundTasks):
@@ -217,13 +229,31 @@ async def get_status(job_id: str):
 @app.get("/download/{job_id}")
 async def download_zip(job_id: str):
     try:
-        signed = supabase.storage.from_("game-builds").create_signed_url(
+        # Try to get a signed URL from Supabase
+        signed_result = supabase.storage.from_("game-builds").create_signed_url(
             f"{job_id}.zip",
             3600  # 1 hour expiry
         )
-        return {"download": signed["signedURL"]}
+        
+        if hasattr(signed_result, 'error') and signed_result.error:
+            raise Exception(f"Failed to get signed URL: {signed_result.error}")
+            
+        return {"download": signed_result["signedURL"]}
     except Exception as e:
-        return {"error": str(e)}
+        # Fallback to serving the file directly
+        zip_path = f"{BASE}/{job_id}.zip"
+        if not os.path.exists(zip_path):
+            return {"error": f"ZIP file not found: {job_id}"}
+            
+        def iterfile():
+            with open(zip_path, 'rb') as f:
+                yield from f
+                
+        return StreamingResponse(
+            iterfile(),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename={job_id}.zip"}
+        )
 
 # Serve dist files
 @app.get("/preview/{job_id}")

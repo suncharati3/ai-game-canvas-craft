@@ -23,34 +23,55 @@ export function useFile(jobId: string | null, path: string | null) {
         
         // First check if there's an edited version in storage
         const editPath = `edits/${jobId}/${path}`;
-        const { data: editData, error: editError } = await supabase
-          .storage
-          .from('game-builds')
-          .download(editPath);
-          
-        if (editData && !editError) {
-          const text = await editData.text();
-          setCode(text);
-          setLoading(false);
-          return;
+        try {
+          const { data: editData, error: editError } = await supabase
+            .storage
+            .from('game-builds')
+            .download(editPath);
+            
+          if (editData && !editError) {
+            const text = await editData.text();
+            setCode(text);
+            setLoading(false);
+            return;
+          }
+        } catch (editErr) {
+          console.log('No edit version found, checking original', editErr);
         }
         
         // If no edited version, check original project files
-        const originalPath = `projects/${jobId}/${path}`;
-        const { data: originalData, error: originalError } = await supabase
-          .storage
-          .from('game-builds')
-          .download(originalPath);
-          
-        if (originalData && !originalError) {
-          const text = await originalData.text();
-          setCode(text);
-        } else {
-          // Handle case where file doesn't exist
-          toast.error(`File not found: ${path}`);
-          setError(new Error(`File not found: ${path}`));
-          setCode('');
+        try {
+          const originalPath = `projects/${jobId}/${path}`;
+          const { data: originalData, error: originalError } = await supabase
+            .storage
+            .from('game-builds')
+            .download(originalPath);
+            
+          if (originalData && !originalError) {
+            const text = await originalData.text();
+            setCode(text);
+            return;
+          }
+        } catch (origErr) {
+          console.error('Error loading original file:', origErr);
         }
+        
+        // If nothing found in storage, try to load from local files
+        try {
+          const response = await fetch(`/file/${jobId}/${path}`);
+          if (response.ok) {
+            const text = await response.text();
+            setCode(text);
+            return;
+          }
+        } catch (localErr) {
+          console.error('Error loading local file:', localErr);
+        }
+        
+        // Handle case where file doesn't exist anywhere
+        toast.error(`File not found: ${path}`);
+        setError(new Error(`File not found: ${path}`));
+        setCode('');
       } catch (err) {
         console.error(`Error loading file ${path}:`, err);
         toast.error(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`);
