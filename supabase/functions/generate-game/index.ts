@@ -1,4 +1,3 @@
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const RENDER_URL = Deno.env.get("RENDER_URL")!;
@@ -9,7 +8,7 @@ const corsHeaders = {
 }
 
 serve(async (req) => {
-  // Handle CORS
+  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -19,7 +18,6 @@ serve(async (req) => {
 
   try {
     if (path === 'generate') {
-      // Generate new game
       const { prompt } = await req.json()
 
       if (!prompt) {
@@ -32,15 +30,25 @@ serve(async (req) => {
         )
       }
 
-      // Call Render service using the configurable URL
+      // Log the Render URL to help with debugging
+      console.log('Calling Render URL:', `${RENDER_URL}/run`);
+
+      // Call Render service
       const response = await fetch(`${RENDER_URL}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ prompt })
       })
 
+      // Add more detailed error logging
       if (!response.ok) {
-        throw new Error(`AI service error: ${response.status}`)
+        const errorText = await response.text();
+        console.error('Render service error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`AI service error: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
@@ -54,7 +62,6 @@ serve(async (req) => {
       )
     } 
     else if (path === 'build') {
-      // Build game
       const { jobId } = await req.json()
 
       if (!jobId) {
@@ -89,7 +96,6 @@ serve(async (req) => {
       )
     }
     else if (path === 'improve') {
-      // Improve game
       const { jobId, prompt } = await req.json()
 
       if (!jobId || !prompt) {
@@ -124,7 +130,6 @@ serve(async (req) => {
       )
     }
     else if (path === 'logs') {
-      // Get logs
       const { jobId } = await req.json()
 
       if (!jobId) {
@@ -155,7 +160,6 @@ serve(async (req) => {
       )
     }
     else {
-      // Default endpoint (generate)
       return new Response(
         JSON.stringify({ error: 'Unknown endpoint' }),
         { 
@@ -165,6 +169,7 @@ serve(async (req) => {
       )
     }
   } catch (error) {
+    console.error('Unexpected error in generate-game function:', error);
     return new Response(
       JSON.stringify({ error: error.message }),
       { 
