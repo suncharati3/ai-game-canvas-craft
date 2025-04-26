@@ -8,9 +8,11 @@ import { Plus, Edit, Trash } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { NavigationBar } from "@/components/ui/navigation-bar";
 import { toast } from "sonner";
+import { useAuth } from "@/components/auth/AuthProvider";
 
 export default function Projects() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const { data: projects, isLoading } = useQuery({
     queryKey: ['projects'],
@@ -40,12 +42,18 @@ export default function Projects() {
   };
 
   const handleCreateProject = async () => {
+    if (!user) {
+      toast.error("You must be logged in to create a project");
+      return;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('projects')
         .insert({
           title: 'New Game Project',
           description: 'A new game project created with AI Game Creator',
+          user_id: user.id
         })
         .select()
         .single();
