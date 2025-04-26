@@ -92,6 +92,14 @@ export function EditorLayout({
             <div className="flex flex-col items-center text-center">
               <p className="text-red-500 mb-2">Error loading files</p>
               <p className="text-xs text-muted-foreground">{zipError.message}</p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                className="mt-4" 
+                onClick={() => onRunBuild()}
+              >
+                Retry
+              </Button>
             </div>
           </div>
         ) : (

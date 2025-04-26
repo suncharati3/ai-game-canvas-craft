@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AIGeneration } from "@/components/editor/ai-generation";
@@ -17,19 +18,38 @@ const Index = () => {
   const navigate = useNavigate();
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
+  const [storageBucketReady, setStorageBucketReady] = useState<boolean>(false);
   
   // Initialize storage bucket when the app starts
   useEffect(() => {
     const initializeStorage = async () => {
       try {
-        const result = await ensureStorageBucketExists();
-        if (result) {
-          console.log("Storage bucket initialized successfully");
-        } else {
-          console.warn("Failed to initialize storage bucket");
+        // Try multiple times in case of network issues
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const result = await ensureStorageBucketExists();
+            if (result) {
+              console.log("Storage bucket initialized successfully");
+              setStorageBucketReady(true);
+              break;
+            } else {
+              console.warn(`Failed to initialize storage bucket (attempt ${attempt + 1})`);
+              if (attempt < 2) {
+                // Wait a bit before retrying
+                await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+              }
+            }
+          } catch (retryErr) {
+            console.error(`Error initializing storage (attempt ${attempt + 1}):`, retryErr);
+            if (attempt < 2) {
+              // Wait a bit before retrying
+              await new Promise(resolve => setTimeout(resolve, 1000 * (attempt + 1)));
+            }
+          }
         }
       } catch (err) {
         console.error("Error initializing storage:", err);
+        toast.error("Could not initialize storage. Some features may not work correctly.");
       }
     };
     
@@ -112,6 +132,12 @@ const Index = () => {
             </p>
             
             <div className="glass-panel p-6 mb-8">
+              {!storageBucketReady && (
+                <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
+                  <p className="text-yellow-800">Initializing storage... Some features may be limited until this completes.</p>
+                </div>
+              )}
+              
               <AIGeneration onGenerate={handleGenerateGame} />
               
               {isGenerating && (

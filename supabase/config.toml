@@ -1,10 +1,13 @@
 
+# This is the config file for the Supabase CLI, and uses TOML format
 project_id = "fnukymxxxcbjbqzzjzli"
 
 [api]
 enabled = true
 port = 54321
 schemas = ["public", "storage", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
 
 [db]
 port = 54322
@@ -16,26 +19,36 @@ enabled = true
 port = 54323
 api_url = "http://localhost"
 
-[auth]
-enabled = true
+[inbucket]
+enabled = false
+port = 54324
 
 [storage]
 enabled = true
 file_size_limit = "50MiB"
 
-[realtime]
+[auth]
 enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["https://localhost:3000"]
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+refresh_token_reuse_interval = 10
+enable_signup = true
 
+[analytics]
+enabled = false
+port = 54327
+vector_port = 54328
+backend = "postgres"
+
+[experimental]
+traces_enabled = false
+tracing_host = "localhost"
+tracing_port = 4317
+tracing_protocol = "grpc"
+
+# Update the JWT verification for the edge function
 [functions]
-[functions.generate-game]
-verify_jwt = false
-[functions.logs]
-verify_jwt = false
-[functions.download]
-verify_jwt = false
-[functions.build]
-verify_jwt = false
-[functions.improve]
-verify_jwt = false
-[functions.create-bucket]
-verify_jwt = false
+[functions.serve]
+verify_jwt = false # Disable JWT verification for all functions

@@ -1,6 +1,6 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.4";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,49 +15,48 @@ serve(async (req) => {
   }
 
   try {
-    // Get environment variables
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    // Get Supabase credentials from environment variables
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Initialize Supabase client with the service key
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Create the game-builds bucket if it doesn't exist
-    const { data, error } = await supabase
-      .storage
-      .createBucket('game-builds', {
-        public: true,
-        fileSizeLimit: 52428800, // 50MB
-      });
-
-    if (error && error.message !== "Bucket already exists") {
-      throw error;
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+      throw new Error('Missing Supabase environment variables');
     }
 
-    // Configure bucket policy to allow public access
-    await supabase
-      .storage
-      .from('game-builds')
-      .updateBucket({
+    // Initialize Supabase client with admin privileges
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+    // Try to get the bucket first to check if it exists
+    const { error: getBucketError } = await supabase.storage.getBucket('game-builds');
+    
+    if (getBucketError) {
+      console.log('Bucket does not exist, creating it');
+      
+      // Create the bucket
+      const { data, error } = await supabase.storage.createBucket('game-builds', {
         public: true,
-        fileSizeLimit: 52428800,
+        fileSizeLimit: 100 * 1024 * 1024, // 100MB limit
       });
 
-    return new Response(
-      JSON.stringify({ success: true, message: "Storage bucket configured" }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200
+      if (error) {
+        throw error;
       }
+      
+      console.log('Bucket created successfully:', data);
+    } else {
+      console.log('Bucket already exists');
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, message: 'Storage bucket ready' }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   } catch (error) {
-    console.error('Error in create-bucket function:', error);
+    console.error('Error creating bucket:', error);
+    
     return new Response(
       JSON.stringify({ error: error.message }),
-      { 
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 500
-      }
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 }
     );
   }
 });

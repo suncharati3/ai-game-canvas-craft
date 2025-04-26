@@ -2,13 +2,23 @@
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
-// The storage bucket where all game files will be stored
-const STORAGE_BUCKET = "game-builds";
-
-// Ensure the storage bucket exists
-export async function ensureStorageBucketExists() {
+export async function ensureStorageBucketExists(): Promise<boolean> {
   try {
-    // Call the create-bucket edge function
+    console.log("Ensuring storage bucket exists...");
+    
+    // First check if the bucket exists
+    try {
+      const { data: bucketData, error: bucketError } = await supabase.storage.getBucket('game-builds');
+      
+      if (!bucketError && bucketData) {
+        console.log("Storage bucket 'game-builds' already exists");
+        return true;
+      }
+    } catch (err) {
+      console.log("Error checking if bucket exists, will try to create it");
+    }
+    
+    // If we get here, try to create the bucket using our edge function
     const { data, error } = await supabase.functions.invoke('generate-game/create-bucket');
     
     if (error) {
@@ -16,142 +26,76 @@ export async function ensureStorageBucketExists() {
       return false;
     }
     
-    console.log("Storage bucket check result:", data);
+    console.log("Storage bucket creation response:", data);
     return true;
   } catch (error) {
-    console.error("Error calling create-bucket function:", error);
+    console.error("Error ensuring storage bucket exists:", error);
     return false;
   }
 }
 
-// Check if file exists in storage
-export async function checkFileExists(path: string) {
+export async function uploadGameZip(jobId: string, zipFile: File): Promise<string | null> {
   try {
-    const { data, error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .list(path.split('/').slice(0, -1).join('/') || '', {
-        limit: 1,
-        search: path.split('/').pop() || ''
-      });
-      
-    if (error) {
-      throw error;
-    }
-    
-    return data && data.length > 0;
-  } catch (error) {
-    console.error("Error checking if file exists:", error);
-    return false;
-  }
-}
-
-// Upload a file to the storage bucket
-export async function uploadFile(path: string, file: File | Blob | ArrayBuffer) {
-  try {
-    // First, ensure the bucket exists
+    // Ensure bucket exists
     await ensureStorageBucketExists();
     
-    const { error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .upload(path, file, {
-        upsert: true,
+    // Upload the zip file
+    const { data, error } = await supabase.storage
+      .from('game-builds')
+      .upload(`${jobId}.zip`, zipFile, {
+        contentType: 'application/zip',
+        upsert: true
       });
-      
+    
     if (error) {
-      throw error;
+      console.error("Error uploading zip file:", error);
+      return null;
     }
     
-    return true;
-  } catch (error: any) {
-    toast.error(`Failed to upload file: ${error.message}`);
-    return false;
-  }
-}
-
-// Get a public URL for a file
-export async function getFilePublicUrl(path: string) {
-  const { data } = supabase
-    .storage
-    .from(STORAGE_BUCKET)
-    .getPublicUrl(path);
+    // Get signed URL
+    const { data: urlData, error: urlError } = await supabase.storage
+      .from('game-builds')
+      .createSignedUrl(`${jobId}.zip`, 3600);
     
-  return data.publicUrl;
-}
-
-// Get a signed URL for a file
-export async function getSignedUrl(path: string, expiresIn = 3600) {
-  try {
-    const { data, error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .createSignedUrl(path, expiresIn);
-      
-    if (error) {
-      throw error;
+    if (urlError) {
+      console.error("Error creating signed URL:", urlError);
+      return null;
     }
     
-    return data.signedUrl;
-  } catch (error: any) {
-    toast.error(`Failed to get signed URL: ${error.message}`);
+    return urlData.signedUrl;
+  } catch (error) {
+    console.error("Error in uploadGameZip:", error);
     return null;
   }
 }
 
-// Download a file from storage
-export async function downloadFile(path: string) {
+export async function downloadGameZip(jobId: string): Promise<string | null> {
   try {
-    const { data, error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .download(path);
-      
-    if (error) {
-      throw error;
+    // Try direct signed URL first
+    const { data: urlData, error: urlError } = await supabase.storage
+      .from('game-builds')
+      .createSignedUrl(`${jobId}.zip`, 3600);
+    
+    if (!urlError && urlData?.signedUrl) {
+      return urlData.signedUrl;
     }
     
-    return data;
-  } catch (error: any) {
-    toast.error(`Failed to download file: ${error.message}`);
+    // If that fails, try the edge function
+    const { data, error } = await supabase.functions.invoke('generate-game/download', {
+      body: { jobId }
+    });
+    
+    if (error) {
+      console.error("Error getting download URL from edge function:", error);
+      
+      // Last resort: try direct URL from the Render service
+      const renderUrl = Deno.env.get("RENDER_URL") || "https://ai-game-canvas-craft.onrender.com";
+      return `${renderUrl}/download/${jobId}`;
+    }
+    
+    return data?.download || null;
+  } catch (error) {
+    console.error("Error in downloadGameZip:", error);
     return null;
-  }
-}
-
-// List files in a directory
-export async function listFiles(prefix: string) {
-  try {
-    const { data, error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .list(prefix);
-      
-    if (error) {
-      throw error;
-    }
-    
-    return data;
-  } catch (error: any) {
-    toast.error(`Failed to list files: ${error.message}`);
-    return [];
-  }
-}
-
-// Delete a file from storage
-export async function deleteFile(path: string) {
-  try {
-    const { error } = await supabase
-      .storage
-      .from(STORAGE_BUCKET)
-      .remove([path]);
-      
-    if (error) {
-      throw error;
-    }
-    
-    return true;
-  } catch (error: any) {
-    toast.error(`Failed to delete file: ${error.message}`);
-    return false;
   }
 }
