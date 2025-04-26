@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { GamePreview } from "@/components/editor/game-preview";
 import { ChatInterface } from "@/components/editor/chat-interface";
 import { EditorHeader } from "@/components/editor/editor-header";
+import { useProject } from "@/hooks/useProject";
 
 interface Message {
   id: string;
@@ -125,30 +126,31 @@ const initialMessages: Message[] = [
 ];
 
 const Editor = () => {
+  const [searchParams] = useSearchParams();
+  const projectId = searchParams.get('project');
+  const navigate = useNavigate();
+  const { project, isLoading, saveProject } = useProject(projectId);
+  
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isRunning, setIsRunning] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [gameCode, setGameCode] = useState<string>("");
-  const navigate = useNavigate();
   
-  // Retrieve data from session storage
   useEffect(() => {
-    const prompt = sessionStorage.getItem("gamePrompt");
-    const diagram = sessionStorage.getItem("gameDiagram");
-    
-    if (!prompt || !diagram) {
-      toast.error("Game data not found. Redirecting to home page...");
-      navigate("/");
+    if (!projectId) {
+      toast.error("No project selected. Redirecting to projects page...");
+      navigate("/projects");
       return;
     }
-    
-    // Initialize with generated game code
-    const code = generateGameCode();
-    setGameCode(code);
-    
-  }, [navigate]);
+  }, [projectId, navigate]);
+  
+  useEffect(() => {
+    if (project?.game_code) {
+      setGameCode(project.game_code);
+    }
+  }, [project]);
   
   const handleToggleRunning = () => {
     setIsRunning(prevState => !prevState);
@@ -158,14 +160,12 @@ const Editor = () => {
   };
   
   const handleSaveProject = async () => {
-    setIsSaving(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      toast.success("Project saved successfully!");
-    } catch (error) {
-      toast.error("Failed to save project. Please try again.");
-    } finally {
-      setIsSaving(false);
+      await saveProject({
+        game_code: gameCode
+      });
+    } catch (error: any) {
+      toast.error(`Failed to save project: ${error.message}`);
     }
   };
   
@@ -201,6 +201,10 @@ const Editor = () => {
     }
   };
   
+  if (isLoading) {
+    return <div className="flex items-center justify-center h-screen">Loading project...</div>;
+  }
+  
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <EditorHeader
@@ -208,7 +212,7 @@ const Editor = () => {
         onCodeView={() => setActiveTab("code")}
         onSettingsView={() => setActiveTab("settings")}
         onFilesView={() => setActiveTab("files")}
-        isSaving={isSaving}
+        isSaving={false}
         activeTab={activeTab}
       />
       

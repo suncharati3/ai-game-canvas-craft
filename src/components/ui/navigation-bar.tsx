@@ -3,7 +3,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
-import { LogIn, LogOut, User } from "lucide-react";
+import { LogIn, LogOut, User, FolderKanban } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -31,6 +31,17 @@ export function NavigationBar() {
             <div className="text-sm text-slate-300">
               {user.email?.split('@')[0]}
             </div>
+            <Button 
+              variant="default"
+              size="sm"
+              className="flex items-center gap-2"
+              asChild
+            >
+              <Link to="/projects">
+                <FolderKanban className="h-4 w-4" />
+                <span>My Projects</span>
+              </Link>
+            </Button>
             <Button 
               variant="ghost" 
               size="sm"
