@@ -4,6 +4,8 @@ import { PromptInput } from "@/components/ui/prompt-input";
 import { DiagramPlan } from "@/components/diagrams/diagram-plan";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
+import { NavigationBar } from "@/components/ui/navigation-bar";
+import { supabase } from "@/integrations/supabase/client";
 
 // Mock diagram generation
 const generateDiagram = (prompt: string): Promise<string> => {
@@ -100,8 +102,11 @@ const Index = () => {
 
   return (
     <div className="min-h-screen flex flex-col">
+      {/* Navigation Bar */}
+      <NavigationBar />
+      
       {/* Hero Section */}
-      <div className="flex flex-col items-center justify-center p-8 py-20 text-center">
+      <div className="flex flex-col items-center justify-center p-8 py-16 text-center">
         <h1 className="text-5xl md:text-6xl font-bold game-gradient-text mb-6 animate-fade-in">
           AI Game Creator
         </h1>
