@@ -28,6 +28,7 @@ export function useZipTree(zipUrl: string | null) {
       try {
         setLoading(true);
         setError(null);
+        console.log('Loading ZIP from URL:', zipUrl);
         
         if (zipUrl.includes('/download/')) {
           // This is a route to our own server
@@ -38,6 +39,7 @@ export function useZipTree(zipUrl: string | null) {
           }
           
           const blob = await response.blob();
+          console.log('ZIP blob size:', blob.size);
           const zip = await JSZip.loadAsync(blob);
           
           await processZipContents(zip);
@@ -51,6 +53,7 @@ export function useZipTree(zipUrl: string | null) {
           }
           
           const blob = await response.blob();
+          console.log('ZIP blob size from signed URL:', blob.size);
           const zip = await JSZip.loadAsync(blob);
           
           await processZipContents(zip);
@@ -62,15 +65,16 @@ export function useZipTree(zipUrl: string | null) {
             throw new Error('Invalid storage path');
           }
           
-          console.log('Downloading from path:', path);
-          const { data, error } = await supabase.storage
+          console.log('Downloading from Supabase path:', path);
+          const { data, error: downloadError } = await supabase.storage
             .from('game-builds')
             .download(path);
           
-          if (error || !data) {
-            throw error || new Error('No data returned');
+          if (downloadError || !data) {
+            throw downloadError || new Error('No data returned');
           }
           
+          console.log('ZIP data received from Supabase:', data instanceof Blob ? data.size : 'Not a blob');
           const zip = await JSZip.loadAsync(data);
           await processZipContents(zip);
         }

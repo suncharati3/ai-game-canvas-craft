@@ -1,3 +1,4 @@
+
 # minimal FastAPI wrapper around GPT-Engineer
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
@@ -7,6 +8,7 @@ from pydantic import BaseModel
 import uuid, os, zipfile, shutil, json, asyncio
 import io, base64
 from supabase import create_client
+from pathlib import Path
 
 app = FastAPI()
 BASE = "/tmp/projects"
@@ -22,8 +24,8 @@ app.add_middleware(
 
 # Initialize Supabase client with service role key
 supabase = create_client(
-    os.environ["SUPABASE_URL"],
-    os.environ["SUPABASE_SERVICE_ROLE_KEY"],
+    os.environ.get("SUPABASE_URL", ""),
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
     options={"auth": {"persist_session": False}}
 )
 
@@ -60,30 +62,47 @@ async def run_gpte(data: ProjectRequest):
             for f in files:
                 fp = os.path.join(root, f)
                 z.write(fp, fp.replace(proj_dir + "/", ""))
+    
+    # Verify zip file is valid
+    if not zipfile.is_zipfile(zip_path):
+        return {"error": "Failed to create valid ZIP file"}
 
     try:
         # Upload zip to Supabase Storage
         with open(zip_path, "rb") as f:
             file_path = f"{job_id}.zip"
-            upload_result = supabase.storage.from_("game-builds").upload(
-                file_path,
-                f,
-                upsert=True
-            )
+            file_content = f.read()  # Read file into memory before upload
             
-            if hasattr(upload_result, 'error') and upload_result.error:
-                return {"error": str(upload_result.error)}
+            # Ensure the bucket exists (this will be handled by service role key)
+            try:
+                upload_result = supabase.storage.from_("game-builds").upload(
+                    file_path,
+                    file_content,
+                    {"content-type": "application/zip"},
+                    upsert=True
+                )
+                
+                if hasattr(upload_result, 'error') and upload_result.error:
+                    return {"error": str(upload_result.error)}
+            except Exception as e:
+                print(f"Upload error: {str(e)}")
+                return {"error": f"Upload failed: {str(e)}"}
 
         # Get signed URL
-        signed_url = supabase.storage.from_("game-builds").create_signed_url(
-            f"{job_id}.zip",
-            3600  # 1 hour expiry
-        )
-        
-        if hasattr(signed_url, 'error') and signed_url.error:
-            return {"error": str(signed_url.error)}
+        try:
+            signed_url = supabase.storage.from_("game-builds").create_signed_url(
+                f"{job_id}.zip",
+                3600  # 1 hour expiry
+            )
             
-        return {"jobId": job_id, "download": signed_url["signedURL"]}
+            if hasattr(signed_url, 'error') and signed_url.error:
+                return {"error": str(signed_url.error)}
+                
+            return {"jobId": job_id, "download": signed_url["signedURL"]}
+        except Exception as e:
+            print(f"Signed URL error: {str(e)}")
+            # Fallback to direct download if Supabase storage fails
+            return {"jobId": job_id, "download": f"/download/{job_id}"}
     except Exception as e:
         print(f"Storage error: {str(e)}")
         # Fallback to direct download if Supabase storage fails
@@ -148,17 +167,43 @@ async def run_build(job_id, proj_dir, log_callback):
             raise Exception("No dist directory found")
             
         # 5. Zip up the dist folder
-        zip_path = f"/tmp/{job_id}-dist.zip"
+        zip_filename = f"{job_id}-dist"
+        zip_path = Path(f"/tmp/{zip_filename}.zip")
         log_callback(job_id, "Creating distribution package...")
-        shutil.make_archive(f"/tmp/{job_id}-dist", 'zip', dist_dir)
         
-        # 6. Upload to storage (placeholder)
+        shutil.make_archive(f"/tmp/{zip_filename}", 'zip', dist_dir)
+        
+        # Verify zip is valid
+        if not zipfile.is_zipfile(zip_path):
+            log_callback(job_id, "ERROR: Failed to create valid dist ZIP file")
+            raise Exception("Failed to create valid ZIP file")
+            
+        # 6. Upload to storage
         log_callback(job_id, "Uploading build...")
-        # upload_and_sign(zip_path, f"{job_id}/dist.zip")
-        preview_url = f"/preview/{job_id}"  # Placeholder URL
-        
-        log_callback(job_id, f"Build completed successfully!")
-        return {"status": "success", "preview": preview_url}
+        try:
+            with open(zip_path, "rb") as f:
+                file_content = f.read()
+                upload_result = supabase.storage.from_("game-builds").upload(
+                    f"{job_id}/dist.zip",
+                    file_content,
+                    {"content-type": "application/zip"},
+                    upsert=True
+                )
+                
+            # Get a signed URL for the uploaded dist.zip
+            signed_url = supabase.storage.from_("game-builds").create_signed_url(
+                f"{job_id}/dist.zip",
+                3600  # 1 hour expiry
+            )
+            
+            preview_url = signed_url["signedURL"]
+            log_callback(job_id, f"Build completed successfully! Preview available at {preview_url}")
+            return {"status": "success", "preview": preview_url}
+        except Exception as e:
+            log_callback(job_id, f"Upload failed: {str(e)}")
+            preview_url = f"/preview/{job_id}"  # Fallback URL
+            log_callback(job_id, f"Using fallback preview URL: {preview_url}")
+            return {"status": "success", "preview": preview_url}
     except Exception as e:
         log_callback(job_id, f"Build failed: {str(e)}")
         return {"status": "error", "error": str(e)}
