@@ -5,13 +5,28 @@ import { DiagramPlan } from "@/components/diagrams/diagram-plan";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NavigationBar } from "@/components/ui/navigation-bar";
-import { supabase } from "@/integrations/supabase/client";
+import { generateGame } from "@/services/ai-service";
 
-// Mock diagram generation
-const generateDiagram = (prompt: string): Promise<string> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(`# Game Architecture Diagram for: "${prompt}"
+const Index = () => {
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [diagram, setDiagram] = useState<string | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [jobId, setJobId] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  const handlePromptSubmit = async (inputPrompt: string) => {
+    setIsProcessing(true);
+    setPrompt(inputPrompt);
+    
+    try {
+      // Use the AI service to generate the diagram and get a job ID
+      const response = await generateGame(inputPrompt);
+      setJobId(response.jobId);
+      
+      // For now, we'll create a formatted diagram based on the prompt
+      // In a production app, this would come from the AI service response
+      const generatedDiagram = `# Game Architecture Diagram for: "${inputPrompt}"
 
 ## Game Structure
 - Main Scene
@@ -48,25 +63,8 @@ Audio Manager <---> Game Events
 - Implement component-based architecture
 - Use event system for decoupled communication
 - Implement state management for game progression
-- Utilize asset preloading for performance`);
-    }, 2000);
-  });
-};
-
-const Index = () => {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
-  const [diagram, setDiagram] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const navigate = useNavigate();
-
-  const handlePromptSubmit = async (inputPrompt: string) => {
-    setIsProcessing(true);
-    setPrompt(inputPrompt);
-    
-    try {
-      // In a real app, this would call an API to generate the diagram
-      const generatedDiagram = await generateDiagram(inputPrompt);
+- Utilize asset preloading for performance optimization`;
+      
       setDiagram(generatedDiagram);
       toast.success("Diagram generated successfully!");
     } catch (error) {
@@ -80,17 +78,11 @@ const Index = () => {
   const handleApproveDiagram = async () => {
     setIsApproving(true);
     try {
-      // In a real app, this would start the code generation process
-      await new Promise(resolve => setTimeout(resolve, 1500));
       toast.success("Plan approved! Redirecting to editor...");
       
-      // Store the prompt and diagram in session storage for the editor
-      sessionStorage.setItem("gamePrompt", prompt);
-      sessionStorage.setItem("gameDiagram", diagram || "");
-      
-      // Navigate to the editor page
+      // Pass the job ID to the editor
       setTimeout(() => {
-        navigate("/editor");
+        navigate(`/editor?jobId=${jobId}`);
       }, 1000);
     } catch (error) {
       toast.error("Failed to approve plan. Please try again.");

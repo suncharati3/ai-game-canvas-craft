@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -5,7 +6,6 @@ import { AIGeneration } from "@/components/editor/ai-generation";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { ChatInterface } from "@/components/editor/chat-interface";
-import { useProject } from "@/hooks/useProject";
 import { generateGame, buildGame, improveGame, getGameLogs } from "@/services/ai-service";
 import { ensureStorageBucket } from "@/services/storage-service";
 
@@ -33,9 +33,8 @@ const initialMessages: Message[] = [
 
 const Editor = () => {
   const [searchParams] = useSearchParams();
-  const projectId = searchParams.get('project');
+  const jobId = searchParams.get('jobId');
   const navigate = useNavigate();
-  const { project, isLoading, saveProject } = useProject(projectId);
   
   const [activeTab, setActiveTab] = useState("dashboard");
   const [isRunning, setIsRunning] = useState(false);
@@ -44,7 +43,6 @@ const Editor = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [gameCode, setGameCode] = useState<string>("");
   
-  const [jobId, setJobId] = useState<string | null>(null);
   const [zipUrl, setZipUrl] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isBuilding, setIsBuilding] = useState(false);
@@ -52,46 +50,45 @@ const Editor = () => {
   const [error, setError] = useState<string | null>(null);
   
   useEffect(() => {
-    if (!projectId) {
-      toast.error("No project selected. Redirecting to projects page...");
-      navigate("/projects");
+    if (!jobId) {
+      toast.error("No job ID found. Redirecting to home page...");
+      navigate("/");
       return;
     }
-  }, [projectId, navigate]);
-  
-  useEffect(() => {
-    if (project?.game_code) {
-      setGameCode(project.game_code);
-    }
-  }, [project]);
-  
-  useEffect(() => {
-    if (projectId) {
-      ensureStorageBucket().then(success => {
-        if (!success) {
-          toast.error("Failed to ensure storage bucket exists. Some features may not work correctly.");
-        }
-      });
-    }
-  }, [projectId]);
+
+    // Initialize editor with the job ID
+    const initializeEditor = async () => {
+      try {
+        setBuildLogs(prev => [...prev, `Initializing editor with job ID: ${jobId}`]);
+        
+        // Ensure storage bucket exists
+        await ensureStorageBucket();
+        
+        // Set the download URL for the ZIP file
+        setZipUrl(`/download/${jobId}`);
+        
+        // Add a welcome message
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          content: `Your game project is ready! You can now explore the files and build your game.`,
+          isUser: false,
+          timestamp: new Date()
+        };
+        
+        setMessages(prev => [...prev, aiMessage]);
+        
+      } catch (error: any) {
+        toast.error(`Failed to initialize editor: ${error.message}`);
+      }
+    };
+    
+    initializeEditor();
+  }, [jobId, navigate]);
   
   const handleToggleRunning = () => {
     setIsRunning(prevState => !prevState);
     if (!isRunning) {
       toast.success("Game preview started!");
-    }
-  };
-  
-  const handleSaveProject = async () => {
-    try {
-      setIsSaving(true);
-      await saveProject({
-        game_code: gameCode
-      });
-      setIsSaving(false);
-    } catch (error: any) {
-      setIsSaving(false);
-      toast.error(`Failed to save project: ${error.message}`);
     }
   };
   
@@ -141,7 +138,7 @@ const Editor = () => {
   
   const handleRunBuild = async () => {
     if (!jobId) {
-      toast.error("No game has been generated yet.");
+      toast.error("No job ID available.");
       return;
     }
     
@@ -167,7 +164,7 @@ const Editor = () => {
   
   const handleFixWithAI = async (errorMessage: string) => {
     if (!jobId) {
-      toast.error("No game has been generated yet.");
+      toast.error("No job ID available.");
       return;
     }
     
@@ -227,14 +224,10 @@ const Editor = () => {
     toast.error("Game error detected. You can use 'Fix with AI' to attempt a repair.");
   };
   
-  if (isLoading) {
-    return <div className="flex items-center justify-center h-screen">Loading project...</div>;
-  }
-  
   return (
     <div className="min-h-screen flex flex-col bg-background">
       <EditorHeader
-        onSave={handleSaveProject}
+        onSave={() => toast.info("Saving is automatic in this editor")}
         onCodeView={() => setActiveTab("code")}
         onSettingsView={() => setActiveTab("settings")}
         onFilesView={() => setActiveTab("files")}
@@ -242,37 +235,19 @@ const Editor = () => {
         activeTab={activeTab}
       />
       
-      {!jobId ? (
+      {!zipUrl ? (
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
           <div className="md:col-span-8 h-[calc(100vh-130px)]">
             <div className="flex flex-col h-full">
               <div className="flex-1 glass-panel p-6">
-                <h1 className="text-2xl font-bold mb-6">Create Your Game</h1>
+                <h1 className="text-2xl font-bold mb-6">Loading Your Game</h1>
                 <p className="mb-8">
-                  Enter a description of the game you want to create. Our AI will generate a playable game based on your description.
+                  Please wait while we set up your game project...
                 </p>
                 
-                <AIGeneration onGenerate={async (prompt) => {
-                  try {
-                    const response = await generateGame(prompt);
-                    setJobId(response.jobId);
-                    if (response.download) {
-                      setZipUrl(response.download);
-                    }
-                    toast.success("Game generated successfully!");
-                    
-                    const aiMessage: Message = {
-                      id: Date.now().toString(),
-                      content: "I've generated your game! You can now explore the files, make edits, and run the game to see it in action.",
-                      isUser: false,
-                      timestamp: new Date()
-                    };
-                    
-                    setMessages(prev => [...prev, aiMessage]);
-                  } catch (error: any) {
-                    toast.error(error.message);
-                  }
-                }} />
+                <div className="flex items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+                </div>
               </div>
             </div>
           </div>
