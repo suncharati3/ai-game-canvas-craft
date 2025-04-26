@@ -4,9 +4,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Wand2 } from "lucide-react";
 import { toast } from "sonner";
-import { generateGame } from "@/services/ai-service";
 
-export function AIGeneration() {
+interface AIGenerationProps {
+  onGenerate: (prompt: string) => Promise<void>;
+}
+
+export function AIGeneration({ onGenerate }: AIGenerationProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [prompt, setPrompt] = useState("");
 
@@ -18,10 +21,7 @@ export function AIGeneration() {
 
     setIsGenerating(true);
     try {
-      const response = await generateGame(prompt);
-      toast.success("Game generated successfully!");
-      console.log("Generation response:", response);
-      // TODO: Handle the response (show download link or load the code)
+      await onGenerate(prompt);
     } catch (error: any) {
       toast.error(error.message);
     } finally {
@@ -30,7 +30,7 @@ export function AIGeneration() {
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4">
+    <div className="flex flex-col gap-4">
       <h3 className="text-lg font-semibold">AI Game Generation</h3>
       <div className="flex gap-2">
         <Input
