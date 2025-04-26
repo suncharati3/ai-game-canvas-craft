@@ -5,6 +5,7 @@ import { GamePreview } from "@/components/editor/game-preview";
 import { ChatInterface } from "@/components/editor/chat-interface";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { useProject } from "@/hooks/useProject";
+import { AIGeneration } from "@/components/editor/ai-generation";
 
 interface Message {
   id: string;
@@ -13,7 +14,6 @@ interface Message {
   timestamp: Date;
 }
 
-// Mock game code generation
 const generateGameCode = (): string => {
   return `
 <!DOCTYPE html>
@@ -109,7 +109,6 @@ const generateGameCode = (): string => {
   `;
 };
 
-// Initialize with welcome messages
 const initialMessages: Message[] = [
   {
     id: "1",
@@ -170,7 +169,6 @@ const Editor = () => {
   };
   
   const handleSendMessage = async (message: string) => {
-    // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
       content: message,
@@ -182,10 +180,8 @@ const Editor = () => {
     setIsProcessing(true);
     
     try {
-      // Mock AI response delay
       await new Promise(resolve => setTimeout(resolve, 2000));
       
-      // Add AI response
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: `I'll implement your request: "${message}". For now, this is a demo with pre-built responses.`,
@@ -223,6 +219,7 @@ const Editor = () => {
             onToggleRunning={handleToggleRunning}
             previewCode={gameCode}
           />
+          <AIGeneration />
         </div>
         
         <div className="md:col-span-4 h-[calc(100vh-130px)]">
