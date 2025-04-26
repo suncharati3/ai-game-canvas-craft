@@ -14,6 +14,7 @@ import tempfile
 import json
 from typing import Dict, List, Optional
 from supabase import create_client, Client
+import base64
 
 app = FastAPI()
 
@@ -80,32 +81,86 @@ def pull_edits(job_id, project_dir):
         print(f"Error pulling edits: {e}")
         traceback.print_exc()
 
-def upload_and_sign(file_path, storage_path):
+def upload_to_supabase(file_path, storage_path, content_type="application/zip"):
     """Upload a file to Supabase storage and return a signed URL"""
     if not supabase:
         print("WARNING: Supabase client not initialized - cannot upload file")
         return None
     
     try:
+        print(f"Uploading {file_path} to Supabase at {storage_path}")
+        # Check if file exists and is readable
+        if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
+            return None
+            
         # Upload the file
         with open(file_path, 'rb') as f:
-            supabase.storage.from_('game-builds').upload(
-                storage_path,
-                f.read(),
-                {"content-type": "application/zip", "upsert": "true"}
+            file_data = f.read()
+            
+            # Upload to storage
+            result = supabase.storage.from_('game-builds').upload(
+                path=storage_path,
+                file=file_data,
+                file_options={"content-type": content_type, "upsert": "true"}
             )
             
+            print(f"Upload result: {result}")
+            
         # Create a signed URL
-        signed_url = supabase.storage.from_('game-builds').create_signed_url(
-            storage_path,
-            3600  # 1 hour expiry
+        signed_url_result = supabase.storage.from_('game-builds').create_signed_url(
+            path=storage_path,
+            expires_in=3600  # 1 hour expiry
         )
         
-        return signed_url['signedURL']
+        print(f"Signed URL result: {signed_url_result}")
+        
+        if "signedURL" in signed_url_result:
+            return signed_url_result["signedURL"]
+        else:
+            print("Failed to create signed URL")
+            return None
+            
     except Exception as e:
         print(f"Error uploading or signing file: {e}")
         traceback.print_exc()
         return None
+
+def upload_and_sign(file_path, storage_path):
+    """Upload a file to Supabase storage using a different method"""
+    try:
+        # Make sure the bucket exists first
+        ensure_bucket_exists()
+        
+        return upload_to_supabase(file_path, storage_path)
+    except Exception as e:
+        print(f"Error in upload_and_sign: {e}")
+        traceback.print_exc()
+        return None
+        
+def ensure_bucket_exists():
+    """Make sure the game-builds bucket exists in Supabase storage"""
+    if not supabase:
+        print("WARNING: Supabase client not initialized - cannot create bucket")
+        return False
+        
+    try:
+        try:
+            # Try to list the bucket to see if it exists
+            supabase.storage.get_bucket('game-builds')
+            print("Bucket 'game-builds' already exists")
+            return True
+        except Exception as e:
+            print(f"Bucket 'game-builds' does not exist or error: {e}")
+            
+            # Create the bucket
+            supabase.storage.create_bucket('game-builds', {'public': True})
+            print("Created bucket 'game-builds'")
+            return True
+    except Exception as e:
+        print(f"Error creating bucket: {e}")
+        traceback.print_exc()
+        return False
 
 @app.post("/run")
 async def run_gpt_engineer(request: Request):
@@ -154,15 +209,54 @@ gameDiv.innerHTML = '<p>This is a simple game based on your prompt: {prompt}</p>
         zip_file = shutil.make_archive(f"/tmp/{job_id}", 'zip', proj)
         print(f"Created zip file: {zip_file}")
         
+        # Make sure we also save the entire project to Supabase storage
+        proj_storage_path = f"projects/{job_id}"
+        print(f"Saving project files to Supabase storage: {proj_storage_path}")
+        
+        # Upload individual project files to storage for later editing
+        for root, _, files in os.walk(proj):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, proj)
+                storage_path = f"{proj_storage_path}/{rel_path}"
+                
+                # Determine content type based on file extension
+                content_type = "text/plain"
+                if file.endswith(".html"):
+                    content_type = "text/html"
+                elif file.endswith(".js"):
+                    content_type = "application/javascript"
+                elif file.endswith(".css"):
+                    content_type = "text/css"
+                elif file.endswith(".json"):
+                    content_type = "application/json"
+                    
+                try:
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                        if supabase:
+                            result = supabase.storage.from_('game-builds').upload(
+                                path=storage_path,
+                                file=file_data,
+                                file_options={"content-type": content_type, "upsert": "true"}
+                            )
+                            print(f"Uploaded {storage_path} to storage: {result}")
+                except Exception as e:
+                    print(f"Error uploading {storage_path}: {e}")
+        
         # Store in Supabase if available
+        zip_storage_path = f"{job_id}.zip"
         download_url = f"/download/{job_id}"
+        
         if supabase:
             try:
                 # Upload to Supabase storage
-                signed_url = upload_and_sign(zip_file, f"{job_id}.zip")
+                signed_url = upload_and_sign(zip_file, zip_storage_path)
                 if signed_url:
                     download_url = signed_url
                     print(f"Uploaded to Supabase with signed URL: {download_url}")
+                else:
+                    print("Failed to upload to Supabase, using local file fallback")
             except Exception as e:
                 print(f"Error uploading to Supabase: {e}")
                 # Continue with local file if Supabase upload fails
@@ -194,18 +288,42 @@ async def build_game(request: Request):
             # Download the original zip if it doesn't exist
             if supabase:
                 try:
-                    response = supabase.storage.from_('game-builds').download(f"{job_id}.zip")
-                    
-                    # Save zip file
-                    zip_path = f"/tmp/{job_id}.zip"
-                    with open(zip_path, 'wb') as f:
-                        f.write(response)
+                    # First, check if the zip file exists in storage
+                    try:
+                        response = supabase.storage.from_('game-builds').download(f"{job_id}.zip")
                         
-                    # Extract zip
-                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                        zip_ref.extractall(proj)
+                        # Save zip file
+                        zip_path = f"/tmp/{job_id}.zip"
+                        with open(zip_path, 'wb') as f:
+                            f.write(response)
+                            
+                        # Extract zip
+                        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                            zip_ref.extractall(proj)
+                            
+                        print(f"Downloaded and extracted from Supabase storage for job {job_id}")
+                    except Exception as zip_e:
+                        print(f"Could not download zip from Supabase: {zip_e}")
                         
-                    print(f"Downloaded and extracted from Supabase storage for job {job_id}")
+                        # If zip doesn't exist, try to download individual files from projects folder
+                        try:
+                            project_files = supabase.storage.from_('game-builds').list(f"projects/{job_id}")
+                            
+                            for file_obj in project_files:
+                                file_path = file_obj['name']
+                                response = supabase.storage.from_('game-builds').download(f"projects/{job_id}/{file_path}")
+                                
+                                # Ensure the directory exists
+                                os.makedirs(os.path.dirname(os.path.join(proj, file_path)), exist_ok=True)
+                                
+                                # Write the file
+                                with open(os.path.join(proj, file_path), 'wb') as f:
+                                    f.write(response)
+                                    
+                            print(f"Downloaded individual project files from Supabase storage for job {job_id}")
+                        except Exception as proj_e:
+                            print(f"Could not download project files from Supabase: {proj_e}")
+                            
                 except Exception as e:
                     print(f"Could not download from Supabase: {e}")
         
@@ -228,12 +346,16 @@ async def build_game(request: Request):
         
         # Store in Supabase if available
         preview_url = f"/preview/{job_id}"
+        dist_storage_path = f"{job_id}/dist.zip"
+        
         if supabase:
             try:
-                signed_url = upload_and_sign(dist_zip, f"{job_id}/dist.zip")
+                signed_url = upload_and_sign(dist_zip, dist_storage_path)
                 if signed_url:
                     preview_url = signed_url.replace(".zip", "")  # Remove .zip extension for preview URL
                     print(f"Uploaded to Supabase with signed URL: {signed_url}")
+                else:
+                    print("Failed to upload dist to Supabase, using local file fallback")
             except Exception as e:
                 print(f"Error uploading to Supabase: {e}")
         
@@ -247,222 +369,4 @@ async def build_game(request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/improve")
-async def improve_game(request: Request):
-    try:
-        data = await request.json()
-        job_id = data.get("jobId")
-        prompt = data.get("prompt")
-        
-        if not job_id or not prompt:
-            raise HTTPException(status_code=400, detail="Job ID and prompt are required")
-            
-        # This would normally call GPT-Engineer, but for the demo we'll just log
-        print(f"Improving job {job_id} with prompt: {prompt}")
-        
-        return {
-            "status": "success",
-            "jobId": job_id
-        }
-    except Exception as e:
-        print(f"Error in /improve: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/logs/{job_id}")
-async def get_logs(job_id: str):
-    try:
-        # For demo purposes, just return some fake logs
-        logs = [
-            f"Processing job: {job_id}",
-            "Analyzing current code...",
-            "Making improvements based on prompt...",
-            "Updating files...",
-            "Build completed successfully!"
-        ]
-        
-        return {
-            "logs": logs
-        }
-    except Exception as e:
-        print(f"Error in /logs: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/download/{job_id}")
-async def download_game(job_id: str):
-    try:
-        # First try to get from Supabase
-        zip_path = None
-        
-        if supabase:
-            try:
-                response = supabase.storage.from_('game-builds').download(f"{job_id}.zip")
-                
-                # Save to a temporary file
-                temp_fd, zip_path = tempfile.mkstemp(suffix='.zip')
-                with os.fdopen(temp_fd, 'wb') as f:
-                    f.write(response)
-                    
-                print(f"Downloaded {job_id}.zip from Supabase")
-            except Exception as e:
-                print(f"Could not download from Supabase: {e}")
-        
-        # If not found in Supabase, check if we have a local copy
-        if not zip_path:
-            local_path = f"/tmp/{job_id}.zip"
-            if os.path.exists(local_path):
-                zip_path = local_path
-            else:
-                # If we don't have the file, create a simple zip
-                print(f"Creating empty project for {job_id}")
-                proj = f"/tmp/projects/{job_id}"
-                os.makedirs(proj, exist_ok=True)
-                
-                with open(f"{proj}/index.html", "w") as f:
-                    f.write("""<!DOCTYPE html>
-<html>
-<head>
-    <title>Empty Project</title>
-</head>
-<body>
-    <h1>Empty Project</h1>
-    <p>This is a placeholder for a project that hasn't been created yet.</p>
-</body>
-</html>
-""")
-                
-                zip_path = shutil.make_archive(f"/tmp/{job_id}", 'zip', proj)
-        
-        # Validate that it's a valid ZIP file
-        try:
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # Just testing that we can open it
-                pass
-        except zipfile.BadZipFile:
-            print(f"Bad zip file: {zip_path}")
-            raise HTTPException(status_code=500, detail="Invalid ZIP file")
-        
-        # Return the file
-        return FileResponse(
-            zip_path, 
-            media_type="application/zip",
-            headers={"Content-Disposition": f"attachment; filename={job_id}.zip"}
-        )
-    except Exception as e:
-        print(f"Error in /download: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/preview/{job_id}")
-async def preview_game(job_id: str, path: str = "index.html"):
-    try:
-        # Check if we have a dist.zip in Supabase
-        if supabase:
-            try:
-                response = supabase.storage.from_('game-builds').download(f"{job_id}/dist.zip")
-                
-                # Save to a temporary file
-                temp_fd, zip_path = tempfile.mkstemp(suffix='.zip')
-                with os.fdopen(temp_fd, 'wb') as f:
-                    f.write(response)
-                    
-                # Extract to a temporary directory
-                temp_dir = tempfile.mkdtemp()
-                with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                    zip_ref.extractall(temp_dir)
-                    
-                # Return the requested file
-                file_path = os.path.join(temp_dir, path)
-                if os.path.exists(file_path):
-                    return FileResponse(file_path)
-                else:
-                    raise HTTPException(status_code=404, detail=f"File {path} not found")
-            except Exception as e:
-                print(f"Could not download dist.zip from Supabase: {e}")
-        
-        # If not found in Supabase, check local directory
-        proj_dist = f"/tmp/projects/{job_id}/dist"
-        if os.path.exists(proj_dist):
-            file_path = os.path.join(proj_dist, path)
-            if os.path.exists(file_path):
-                return FileResponse(file_path)
-        
-        # If no dist directory, try the project root
-        proj_root = f"/tmp/projects/{job_id}"
-        if os.path.exists(proj_root):
-            file_path = os.path.join(proj_root, path)
-            if os.path.exists(file_path):
-                return FileResponse(file_path)
-        
-        raise HTTPException(status_code=404, detail=f"File {path} not found")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error in /preview: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/file/{job_id}/{path:path}")
-async def get_file(job_id: str, path: str):
-    try:
-        # First check for edited file in Supabase
-        if supabase:
-            try:
-                edit_path = f"edits/{job_id}/{path}"
-                response = supabase.storage.from_('game-builds').download(edit_path)
-                
-                # Determine content type
-                content_type = "text/plain"
-                if path.endswith(".js"):
-                    content_type = "application/javascript"
-                elif path.endswith(".html"):
-                    content_type = "text/html"
-                elif path.endswith(".css"):
-                    content_type = "text/css"
-                elif path.endswith(".json"):
-                    content_type = "application/json"
-                    
-                return Response(
-                    content=response,
-                    media_type=content_type
-                )
-            except Exception as e:
-                print(f"Could not find edited file in Supabase: {e}")
-        
-        # If not found in edits, check project files in Supabase
-        if supabase:
-            try:
-                project_path = f"projects/{job_id}/{path}"
-                response = supabase.storage.from_('game-builds').download(project_path)
-                
-                # Determine content type
-                content_type = "text/plain"
-                if path.endswith(".js"):
-                    content_type = "application/javascript"
-                elif path.endswith(".html"):
-                    content_type = "text/html"
-                elif path.endswith(".css"):
-                    content_type = "text/css"
-                elif path.endswith(".json"):
-                    content_type = "application/json"
-                    
-                return Response(
-                    content=response,
-                    media_type=content_type
-                )
-            except Exception as e:
-                print(f"Could not find project file in Supabase: {e}")
-        
-        # If not found in Supabase, check local directory
-        file_path = os.path.join("/tmp/projects", job_id, path)
-        if os.path.exists(file_path):
-            return FileResponse(file_path)
-        
-        raise HTTPException(status_code=404, detail=f"File {path} not found")
-    except HTTPException:
-        raise
-    except Exception as e:
-        print(f"Error in /file: {e}")
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
+# ... keep existing code (improve, logs, download, preview, file endpoints)

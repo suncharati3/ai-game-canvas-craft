@@ -5,6 +5,25 @@ import { toast } from "sonner";
 // The storage bucket where all game files will be stored
 const STORAGE_BUCKET = "game-builds";
 
+// Ensure the storage bucket exists
+export async function ensureStorageBucketExists() {
+  try {
+    // Call the create-bucket edge function
+    const { data, error } = await supabase.functions.invoke('generate-game/create-bucket');
+    
+    if (error) {
+      console.error("Error ensuring storage bucket exists:", error);
+      return false;
+    }
+    
+    console.log("Storage bucket check result:", data);
+    return true;
+  } catch (error) {
+    console.error("Error calling create-bucket function:", error);
+    return false;
+  }
+}
+
 // Check if file exists in storage
 export async function checkFileExists(path: string) {
   try {
@@ -30,6 +49,9 @@ export async function checkFileExists(path: string) {
 // Upload a file to the storage bucket
 export async function uploadFile(path: string, file: File | Blob | ArrayBuffer) {
   try {
+    // First, ensure the bucket exists
+    await ensureStorageBucketExists();
+    
     const { error } = await supabase
       .storage
       .from(STORAGE_BUCKET)

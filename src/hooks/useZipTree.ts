@@ -1,26 +1,25 @@
-
 import { useState, useEffect } from 'react';
 import JSZip from 'jszip';
-import { toast } from 'sonner';
-import { supabase } from '@/integrations/supabase/client';
 
-export interface TreeNode {
+interface FileTreeNode {
   name: string;
+  type: 'file' | 'directory';
   path: string;
-  isDirectory: boolean;
-  children?: TreeNode[];
+  children: FileTreeNode[];
 }
 
 export function useZipTree(zipUrl: string | null) {
-  const [tree, setTree] = useState<TreeNode[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<Error | null>(null);
+  const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [files, setFiles] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<Error | null>(null);
+  const [loadAttempts, setLoadAttempts] = useState(0);
 
   useEffect(() => {
     if (!zipUrl) {
       setTree([]);
       setFiles({});
+      setError(null);
       return;
     }
 
@@ -29,306 +28,126 @@ export function useZipTree(zipUrl: string | null) {
         setLoading(true);
         setError(null);
         console.log('Loading ZIP from URL:', zipUrl);
+
+        // Handle different URL formats
+        let fetchUrl = zipUrl;
+        let jobId = '';
         
-        let blob: Blob | null = null;
-        let retryCount = 0;
-        const maxRetries = 3;
-        
-        // Fetch with retry logic
-        while (retryCount < maxRetries) {
-          try {
-            if (zipUrl.startsWith('http')) {
-              // This is a full URL, likely from Render or Supabase
-              const response = await fetch(zipUrl, { 
-                // Bypass cache to ensure we get fresh content
-                cache: 'no-store',
-                headers: {
-                  'Pragma': 'no-cache',
-                  'Cache-Control': 'no-cache'
-                }
-              });
-              
-              if (!response.ok) {
-                console.error('URL fetch failed:', response.status, response.statusText);
-                const errorText = await response.text();
-                console.error('Error details:', errorText.substring(0, 200));
-                throw new Error(`HTTP error from URL: ${response.status}`);
-              }
-              
-              blob = await response.blob();
-              console.log('ZIP blob size from URL:', blob.size);
-              
-              if (blob.size === 0) {
-                throw new Error('Empty ZIP file received from URL');
-              }
-              
-              break; // Success, exit retry loop
-            }
-            else if (zipUrl.includes('/download/')) {
-              // Handle relative URL that needs to be fetched from our Render service
-              const jobId = zipUrl.split('/download/')[1];
-              
-              if (!jobId) {
-                throw new Error('Invalid download URL format');
-              }
-              
-              console.log('Fetching download using job ID:', jobId);
-              
-              // First try direct download from the URL
-              try {
-                const directResponse = await fetch(zipUrl, {
-                  cache: 'no-store',
-                  headers: {
-                    'Pragma': 'no-cache',
-                    'Cache-Control': 'no-cache'
-                  }
-                });
-                
-                if (directResponse.ok) {
-                  blob = await directResponse.blob();
-                  console.log('ZIP blob size from direct download:', blob.size);
-                  
-                  if (blob.size > 0) {
-                    break; // Success, exit retry loop
-                  }
-                  
-                  console.warn('Empty blob from direct download, trying Supabase function...');
-                }
-              } catch (directError) {
-                console.warn('Direct download failed, trying Supabase function:', directError);
-              }
-              
-              // If direct download failed, try through Supabase function
-              const { data, error: functionError } = await supabase.functions.invoke('generate-game/download', {
-                body: { jobId }
-              });
-              
-              if (functionError || !data || !data.download) {
-                console.error('Function error:', functionError || 'No data returned');
-                throw new Error('Failed to get download URL from Supabase function');
-              }
-              
-              // Now fetch the actual ZIP from the returned URL
-              const downloadUrl = data.download;
-              console.log('Got download URL:', downloadUrl);
-              
-              const response = await fetch(downloadUrl, {
-                cache: 'no-store',
-                headers: {
-                  'Pragma': 'no-cache',
-                  'Cache-Control': 'no-cache'
-                }
-              });
-              
-              if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-              }
-              
-              blob = await response.blob();
-              console.log('ZIP blob size:', blob.size);
-              
-              if (blob.size > 0) {
-                break; // Success, exit retry loop
-              }
-            }
-            else if (zipUrl.includes('sign/game-builds')) {
-              // This is a signed Supabase URL
-              const response = await fetch(zipUrl, {
-                cache: 'no-store',
-                headers: {
-                  'Pragma': 'no-cache',
-                  'Cache-Control': 'no-cache'
-                }
-              });
-              
-              if (!response.ok) {
-                console.error('Signed URL fetch failed:', response.status, response.statusText);
-                const errorText = await response.text();
-                console.error('Error details:', errorText.substring(0, 200));
-                throw new Error(`HTTP error from signed URL: ${response.status}`);
-              }
-              
-              blob = await response.blob();
-              console.log('ZIP blob size from signed URL:', blob.size);
-              
-              if (blob.size > 0) {
-                break; // Success, exit retry loop
-              }
-            }
-            else {
-              // Try to load from Supabase using path
-              const path = zipUrl.includes('game-builds/') 
-                ? zipUrl.split('game-builds/')[1] 
-                : zipUrl;
-                
-              if (!path) {
-                throw new Error('Invalid storage path');
-              }
-              
-              console.log('Downloading from Supabase path:', path);
-              const { data, error: downloadError } = await supabase.storage
-                .from('game-builds')
-                .download(path);
-              
-              if (downloadError || !data) {
-                console.error('Supabase download error:', downloadError);
-                throw downloadError || new Error('No data returned from Supabase');
-              }
-              
-              blob = data;
-              console.log('ZIP data received from Supabase:', data instanceof Blob ? data.size : 'Not a blob');
-              
-              if (blob.size > 0) {
-                break; // Success, exit retry loop
-              }
-            }
-            
-            retryCount++;
-            console.log(`Attempt ${retryCount} failed, retrying...`);
-            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between retries
-          } catch (fetchError) {
-            console.error(`Fetch attempt ${retryCount + 1} failed:`, fetchError);
-            retryCount++;
-            
-            if (retryCount >= maxRetries) {
-              throw fetchError;
-            }
-            
-            // Exponential backoff
-            await new Promise(resolve => setTimeout(resolve, retryCount * 1000));
-          }
+        if (zipUrl.includes('/download/')) {
+          jobId = zipUrl.split('/download/')[1];
+          console.log('Fetching download using job ID:', jobId);
+        }
+
+        // Fetch the zip file
+        const response = await fetch(fetchUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ZIP file: ${response.status} ${response.statusText}`);
         }
         
-        if (!blob || blob.size === 0) {
-          throw new Error('Failed to obtain valid ZIP blob after multiple attempts');
-        }
+        // Get the blob
+        const blob = await response.blob();
+        console.log('ZIP blob size from direct download:', blob.size);
         
-        // Verify it's a ZIP file by checking the first bytes
-        const bytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
-        const isPK = bytes[0] === 0x50 && bytes[1] === 0x4B;
-        
-        if (!isPK) {
-          const text = await blob.text();
-          console.error('Not a ZIP file. Content:', text.substring(0, 200) + '...');
+        // Check if it's actually a ZIP file (ZIP files start with PK)
+        const fileHeader = await blob.slice(0, 2).text();
+        if (fileHeader !== 'PK') {
+          const errorContent = await blob.text().then(text => text.substring(0, 100));
+          console.error('Not a ZIP file. Content:', errorContent);
           throw new Error('Invalid ZIP format: file does not start with ZIP signature');
         }
+
+        // Load the ZIP file
+        const jszip = new JSZip();
+        const zip = await jszip.loadAsync(blob);
         
-        try {
-          const zip = await JSZip.loadAsync(blob);
-          await processZipContents(zip);
-        } catch (zipError) {
-          console.error('JSZip error:', zipError);
-          console.error('ZIP blob size:', blob.size);
-          
-          // Try to read the first few bytes to verify the format
-          const arrayBuffer = await blob.slice(0, Math.min(blob.size, 1000)).arrayBuffer();
-          const bytes = new Uint8Array(arrayBuffer);
-          const isPK = bytes[0] === 0x50 && bytes[1] === 0x4B;
-          
-          if (!isPK) {
-            // Try to get text content to see if it's an error message
-            try {
-              const text = await blob.text();
-              console.error('Content (not a ZIP):', text.substring(0, 300) + '...');
-              throw new Error(`Invalid ZIP format: ${zipError.message}. Content appears to be: ${text.substring(0, 100)}...`);
-            } catch (textError) {
-              throw new Error(`Invalid ZIP format: ${zipError.message}. Unable to read content.`);
-            }
-          } else {
-            throw new Error(`ZIP parsing error: ${zipError.message}`);
+        // Process the files in the zip
+        const newTree: FileTreeNode[] = [];
+        const newFiles: Record<string, string> = {};
+        
+        const promises = [];
+        
+        // Process each file in the zip
+        zip.forEach((relativePath, file) => {
+          if (!file.dir) {
+            const promise = file.async('text').then(content => {
+              newFiles[relativePath] = content;
+              
+              // Add file to tree
+              const pathParts = relativePath.split('/');
+              let currentLevel = newTree;
+              
+              // Create the directory structure
+              for (let i = 0; i < pathParts.length - 1; i++) {
+                const part = pathParts[i];
+                let nextDir = currentLevel.find(
+                  node => node.name === part && node.type === 'directory'
+                );
+                
+                if (!nextDir) {
+                  nextDir = {
+                    name: part,
+                    type: 'directory',
+                    path: pathParts.slice(0, i + 1).join('/'),
+                    children: []
+                  };
+                  currentLevel.push(nextDir);
+                }
+                
+                currentLevel = nextDir.children;
+              }
+              
+              // Add the file
+              const fileName = pathParts[pathParts.length - 1];
+              currentLevel.push({
+                name: fileName,
+                type: 'file',
+                path: relativePath,
+                children: []
+              });
+            });
+            
+            promises.push(promise);
           }
-        }
+        });
+        
+        // Wait for all files to be processed
+        await Promise.all(promises);
+        
+        // Sort the tree
+        const sortTree = (nodes: FileTreeNode[]) => {
+          nodes.sort((a, b) => {
+            if (a.type === b.type) {
+              return a.name.localeCompare(b.name);
+            }
+            return a.type === 'directory' ? -1 : 1;
+          });
+          
+          nodes.forEach(node => {
+            if (node.type === 'directory') {
+              sortTree(node.children);
+            }
+          });
+        };
+        
+        sortTree(newTree);
+        
+        setTree(newTree);
+        setFiles(newFiles);
+        setLoading(false);
+        setError(null);
       } catch (err) {
         console.error('Error loading ZIP:', err);
-        toast.error(`Failed to load project files: ${err instanceof Error ? err.message : String(err)}`);
         setError(err instanceof Error ? err : new Error(String(err)));
-        setTree([]);
-        setFiles({});
-      } finally {
         setLoading(false);
+        
+        // Increment load attempts for retry logic elsewhere
+        setLoadAttempts(prev => prev + 1);
       }
     };
     
-    const processZipContents = async (zip: JSZip) => {
-      const fileTreeObj: Record<string, TreeNode> = {};
-      const fileContents: Record<string, string> = {};
-      
-      const zipFiles = Object.keys(zip.files);
-      console.log(`Processing ${zipFiles.length} files in ZIP`);
-      
-      if (zipFiles.length === 0) {
-        console.warn('ZIP file contains no files');
-        setTree([]);
-        setFiles({});
-        return;
-      }
-      
-      const promises = zipFiles.map(async (path) => {
-        const zipObj = zip.files[path];
-        
-        if (zipObj.dir) return;
-        
-        try {
-          const content = await zipObj.async('string');
-          fileContents[path] = content;
-        } catch (e) {
-          console.error(`Error extracting ${path}:`, e);
-          fileContents[path] = `// Error loading file: ${e}`;
-        }
-        
-        const parts = path.split('/');
-        let currentPath = '';
-        
-        parts.forEach((part, i) => {
-          const isLast = i === parts.length - 1;
-          const parentPath = currentPath;
-          currentPath = currentPath ? `${currentPath}/${part}` : part;
-          
-          if (!fileTreeObj[currentPath]) {
-            fileTreeObj[currentPath] = {
-              name: part,
-              path: currentPath,
-              isDirectory: !isLast,
-              children: isLast ? undefined : []
-            };
-            
-            if (parentPath && fileTreeObj[parentPath]) {
-              fileTreeObj[parentPath].children?.push(fileTreeObj[currentPath]);
-            }
-          }
-        });
-      });
-      
-      await Promise.all(promises);
-      
-      const rootNodes = Object.values(fileTreeObj).filter(node => {
-        return !node.path.includes('/');
-      });
-      
-      console.log(`Created ${rootNodes.length} root nodes in file tree`);
-      
-      const sortNodes = (nodes: TreeNode[] = []): TreeNode[] => {
-        return [...nodes].sort((a, b) => {
-          if (a.isDirectory && !b.isDirectory) return -1;
-          if (!a.isDirectory && b.isDirectory) return 1;
-          return a.name.localeCompare(b.name);
-        }).map(node => {
-          if (node.children) {
-            return {
-              ...node,
-              children: sortNodes(node.children)
-            };
-          }
-          return node;
-        });
-      };
-      
-      setTree(sortNodes(rootNodes));
-      setFiles(fileContents);
-    };
-
     loadZip();
+    
   }, [zipUrl]);
-
-  return { tree, files, loading, error };
+  
+  return { tree, files, loading, error, loadAttempts };
 }

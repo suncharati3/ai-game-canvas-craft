@@ -37,3 +37,5 @@ verify_jwt = false
 verify_jwt = false
 [functions.improve]
 verify_jwt = false
+[functions.create-bucket]
+verify_jwt = false

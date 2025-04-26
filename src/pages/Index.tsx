@@ -1,201 +1,175 @@
-
-import React, { useState } from "react";
-import { PromptInput } from "@/components/ui/prompt-input";
-import { DiagramPlan } from "@/components/diagrams/diagram-plan";
-import { toast } from "sonner";
+import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { NavigationBar } from "@/components/ui/navigation-bar";
+import { AIGeneration } from "@/components/editor/ai-generation";
+import { ensureStorageBucketExists } from "@/services/storage-service";
 import { generateGame, getGameLogs } from "@/services/ai-service";
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
+
+interface Message {
+  id: string;
+  content: string;
+  isUser: boolean;
+  timestamp: Date;
+}
 
 const Index = () => {
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [isApproving, setIsApproving] = useState(false);
-  const [diagram, setDiagram] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState("");
-  const [jobId, setJobId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [retryCount, setRetryCount] = useState(0);
   const navigate = useNavigate();
-
-  const fetchDiagram = async (jobId: string) => {
-    try {
-      // Fetch logs which should contain the plan
-      const logs = await getGameLogs(jobId);
-      if (logs && logs.logs && logs.logs.length > 0) {
-        // Find diagram/plan in logs
-        const planLog = logs.logs.find(log => 
-          log.includes("# Game Architecture Diagram") || log.includes("Game Plan:"));
-        
-        if (planLog) {
-          setDiagram(planLog);
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationLogs, setGenerationLogs] = useState<string[]>([]);
+  
+  // Initialize storage bucket when the app starts
+  useEffect(() => {
+    const initializeStorage = async () => {
+      try {
+        const result = await ensureStorageBucketExists();
+        if (result) {
+          console.log("Storage bucket initialized successfully");
         } else {
-          // If we can't find a specific plan, show all logs as the plan
-          setDiagram(logs.logs.join('\n'));
+          console.warn("Failed to initialize storage bucket");
         }
-      } else {
-        // If no logs are available, show a default plan
-        const defaultPlan = `# Game Architecture Diagram for: "${prompt}"
-
-## Game Structure
-- Main Scene
-  - Player Controller
-  - Camera System
-  - World Environment
-- Game Systems
-  - Physics Engine
-  - Input Controller
-  - Audio Manager
-  - UI Manager
-- Assets
-  - 3D Models
-  - Textures
-  - Audio Files
-  - UI Elements
-
-## Component Relationships
-Player Controller <---> Physics Engine
-Camera System <---> Player Controller
-UI Manager <---> Game State
-Audio Manager <---> Game Events
-
-## Technical Implementation
-- Use Three.js for 3D rendering
-- Implement component-based architecture
-- Use event system for decoupled communication
-- Implement state management for game progression
-- Utilize asset preloading for performance optimization`;
-        
-        setDiagram(defaultPlan);
+      } catch (err) {
+        console.error("Error initializing storage:", err);
       }
-    } catch (error) {
-      console.error("Error fetching diagram:", error);
-      // On error, still show a default plan so the user can continue
-      const defaultPlan = `# Game Architecture Diagram for: "${prompt}"
-
-## Game Structure
-- Generated based on your prompt: "${prompt}"
-- Main components and systems
-- Asset requirements
-
-## Technical Implementation
-- Three.js rendering
-- Component-based architecture
-- Event-driven communication`;
-      
-      setDiagram(defaultPlan);
-    }
-  };
-
-  const handlePromptSubmit = async (inputPrompt: string) => {
-    setIsProcessing(true);
-    setPrompt(inputPrompt);
-    setError(null);
+    };
+    
+    initializeStorage();
+  }, []);
+  
+  const handleGenerateGame = async (prompt: string) => {
+    setIsGenerating(true);
+    setGenerationLogs([`Starting generation with prompt: "${prompt}"...`]);
     
     try {
-      // Use the AI service to generate the game and get a job ID
-      const response = await generateGame(inputPrompt);
-      setJobId(response.jobId);
+      const response = await generateGame(prompt);
       
-      // Fetch the actual plan from the logs
-      await fetchDiagram(response.jobId);
+      // Poll for logs to show progress
+      if (response.jobId) {
+        pollLogs(response.jobId);
+      }
       
-      toast.success("Game plan generated successfully!");
-    } catch (error) {
-      console.error("Error generating game:", error);
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      setError(errorMessage);
-      toast.error("Failed to generate game. See details below.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleRetry = () => {
-    setRetryCount(prev => prev + 1);
-    handlePromptSubmit(prompt);
-  };
-
-  const handleApproveDiagram = async () => {
-    setIsApproving(true);
-    try {
-      toast.success("Plan approved! Redirecting to editor...");
-      
-      // Pass the job ID to the editor
+      // Navigate to the editor with the job ID
       setTimeout(() => {
-        navigate(`/editor?jobId=${jobId}`);
+        navigate(`/editor?jobId=${response.jobId}`);
       }, 1000);
-    } catch (error) {
-      toast.error("Failed to approve plan. Please try again.");
-      console.error("Error approving plan:", error);
-    } finally {
-      setIsApproving(false);
+      
+    } catch (error: any) {
+      toast.error(error.message || "Failed to generate game");
+      setGenerationLogs(prev => [...prev, `Error: ${error.message}`]);
+      setIsGenerating(false);
     }
   };
-
-  return (
-    <div className="min-h-screen flex flex-col">
-      {/* Navigation Bar */}
-      <NavigationBar />
+  
+  const pollLogs = async (jobId: string) => {
+    let active = true;
+    let attempts = 0;
+    
+    const checkLogs = async () => {
+      if (!active) return;
       
-      {/* Hero Section */}
-      <div className="flex flex-col items-center justify-center p-8 py-16 text-center">
-        <h1 className="text-5xl md:text-6xl font-bold game-gradient-text mb-6 animate-fade-in">
-          AI Game Creator
-        </h1>
-        <p className="text-xl mb-12 max-w-2xl text-slate-300 animate-fade-in">
-          Create interactive 3D and 2D games just by describing your idea.
-          Our AI handles the code, assets, and logic.
-        </p>
+      try {
+        const response = await getGameLogs(jobId);
+        if (response.logs) {
+          setGenerationLogs(response.logs);
+        }
         
-        {!diagram && (
-          <div className="w-full max-w-2xl animate-fade-in">
-            <PromptInput 
-              onSubmit={handlePromptSubmit} 
-              isProcessing={isProcessing}
-              placeholder="Describe your game idea, e.g. 'A 3D platformer with jumping mechanics'"
-            />
+        attempts++;
+        
+        if (attempts < 30) {  // Poll for up to 30*2s = 1 minute
+          setTimeout(checkLogs, 2000);
+        } else {
+          setIsGenerating(false);
+        }
+      } catch (error) {
+        console.error("Error polling logs:", error);
+        
+        // Add error to logs but continue polling
+        setGenerationLogs(prev => [...prev, `Error retrieving logs: ${error instanceof Error ? error.message : String(error)}`]);
+        
+        if (attempts < 30) {
+          setTimeout(checkLogs, 5000); // Longer delay on error
+        } else {
+          setIsGenerating(false);
+        }
+      }
+    };
+    
+    checkLogs();
+    
+    return () => {
+      active = false;
+    };
+  };
+  
+  return (
+    <div className="min-h-screen flex flex-col bg-background">
+      <div className="flex-1 container max-w-screen-xl mx-auto px-4 py-8">
+        <div className="flex flex-col md:flex-row gap-8">
+          <div className="md:w-1/2">
+            <h1 className="text-4xl font-bold mb-4">AI Game Creator</h1>
+            <p className="text-xl text-muted-foreground mb-8">
+              Create your own games using AI. Just describe what you want, and our AI will generate a playable game for you.
+            </p>
             
-            {error && (
-              <div className="mt-4">
-                <Alert variant="destructive">
-                  <AlertTitle>Error generating game</AlertTitle>
-                  <AlertDescription className="text-left">
-                    <p className="mb-2">{error}</p>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      onClick={handleRetry}
-                      className="flex items-center gap-2"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Try Again
-                    </Button>
-                  </AlertDescription>
-                </Alert>
-              </div>
-            )}
+            <div className="glass-panel p-6 mb-8">
+              <AIGeneration onGenerate={handleGenerateGame} />
+              
+              {isGenerating && (
+                <div className="mt-8">
+                  <h3 className="text-lg font-semibold mb-4">Generation Progress</h3>
+                  <div className="bg-secondary/50 rounded-md p-4 h-64 overflow-y-auto font-mono text-sm">
+                    {generationLogs.map((log, index) => (
+                      <div key={index} className="mb-1">
+                        {log}
+                      </div>
+                    ))}
+                    {isGenerating && (
+                      <div className="flex items-center mt-2">
+                        <div className="h-2 w-2 animate-pulse rounded-full bg-primary mr-2"></div>
+                        <span>Processing...</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            <div className="flex flex-col gap-4">
+              <Button 
+                onClick={() => navigate("/projects")}
+                variant="outline" 
+                size="lg"
+              >
+                Browse Your Projects
+              </Button>
+            </div>
           </div>
-        )}
-      </div>
-      
-      {/* Diagram Section */}
-      {diagram && (
-        <div className="flex-1 p-6 max-w-6xl mx-auto w-full animate-fade-in">
-          <DiagramPlan 
-            diagram={diagram} 
-            onApprove={handleApproveDiagram}
-            isApproving={isApproving}
-          />
+          
+          <div className="md:w-1/2">
+            <div className="glass-panel p-6 h-full">
+              <h2 className="text-2xl font-bold mb-4">How It Works</h2>
+              <ol className="list-decimal pl-4 space-y-4">
+                <li className="text-lg">
+                  <span className="font-semibold">Describe your game idea</span>
+                  <p className="text-muted-foreground mt-1">Tell our AI what type of game you want to create. Be as descriptive as possible.</p>
+                </li>
+                <li className="text-lg">
+                  <span className="font-semibold">AI generates your game</span>
+                  <p className="text-muted-foreground mt-1">Our advanced AI will create a playable game based on your description.</p>
+                </li>
+                <li className="text-lg">
+                  <span className="font-semibold">Customize and edit</span>
+                  <p className="text-muted-foreground mt-1">Use our editor to make changes and further customize your game.</p>
+                </li>
+                <li className="text-lg">
+                  <span className="font-semibold">Play and share</span>
+                  <p className="text-muted-foreground mt-1">Play your game directly in the browser and share it with others.</p>
+                </li>
+              </ol>
+            </div>
+          </div>
         </div>
-      )}
-      
-      {/* Footer */}
-      <footer className="p-6 text-center text-sm text-slate-500">
-        <p>AI Game Creator - Powered by Three.js and GPT</p>
-      </footer>
+      </div>
     </div>
   );
 };
