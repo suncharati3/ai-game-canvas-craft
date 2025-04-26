@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -7,7 +6,6 @@ import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { ChatInterface } from "@/components/editor/chat-interface";
 import { generateGame, buildGame, improveGame, getGameLogs } from "@/services/ai-service";
-import { ensureStorageBucket } from "@/services/storage-service";
 
 interface Message {
   id: string;
@@ -56,18 +54,12 @@ const Editor = () => {
       return;
     }
 
-    // Initialize editor with the job ID
     const initializeEditor = async () => {
       try {
         setBuildLogs(prev => [...prev, `Initializing editor with job ID: ${jobId}`]);
         
-        // Ensure storage bucket exists
-        await ensureStorageBucket();
-        
-        // Set the download URL for the ZIP file
         setZipUrl(`/download/${jobId}`);
         
-        // Add a welcome message
         const aiMessage: Message = {
           id: Date.now().toString(),
           content: `Your game project is ready! You can now explore the files and build your game.`,
