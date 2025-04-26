@@ -6,6 +6,7 @@ const RENDER_URL = Deno.env.get("RENDER_URL")!;
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 };
 
 serve(async (req) => {
@@ -19,7 +20,16 @@ serve(async (req) => {
       throw new Error('RENDER_URL environment variable not set');
     }
 
-    const { jobId } = await req.json();
+    let jobId = '';
+    
+    // Handle both GET and POST methods
+    if (req.method === 'POST') {
+      const body = await req.json();
+      jobId = body.jobId;
+    } else if (req.method === 'GET') {
+      const url = new URL(req.url);
+      jobId = url.pathname.split('/').pop() || '';
+    }
 
     if (!jobId) {
       return new Response(

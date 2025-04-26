@@ -6,6 +6,9 @@ import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NavigationBar } from "@/components/ui/navigation-bar";
 import { generateGame } from "@/services/ai-service";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 const Index = () => {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -13,11 +16,14 @@ const Index = () => {
   const [diagram, setDiagram] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const navigate = useNavigate();
 
   const handlePromptSubmit = async (inputPrompt: string) => {
     setIsProcessing(true);
     setPrompt(inputPrompt);
+    setError(null);
     
     try {
       // Use the AI service to generate the diagram and get a job ID
@@ -66,13 +72,20 @@ Audio Manager <---> Game Events
 - Utilize asset preloading for performance optimization`;
       
       setDiagram(generatedDiagram);
-      toast.success("Diagram generated successfully!");
+      toast.success("Game plan generated successfully!");
     } catch (error) {
-      toast.error("Failed to generate diagram. Please try again.");
-      console.error("Error generating diagram:", error);
+      console.error("Error generating game:", error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      setError(errorMessage);
+      toast.error("Failed to generate game. See details below.");
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleRetry = () => {
+    setRetryCount(prev => prev + 1);
+    handlePromptSubmit(prompt);
   };
 
   const handleApproveDiagram = async () => {
@@ -114,6 +127,26 @@ Audio Manager <---> Game Events
               isProcessing={isProcessing}
               placeholder="Describe your game idea, e.g. 'A 3D platformer with jumping mechanics'"
             />
+            
+            {error && (
+              <div className="mt-4">
+                <Alert variant="destructive">
+                  <AlertTitle>Error generating game</AlertTitle>
+                  <AlertDescription className="text-left">
+                    <p className="mb-2">{error}</p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={handleRetry}
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      Try Again
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -26,12 +26,55 @@ interface LogsResponse {
   error?: string;
 }
 
+// Helper function to retry API calls with exponential backoff
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  initialDelay: number = 1000
+): Promise<T> {
+  let retries = 0;
+  let delay = initialDelay;
+
+  while (true) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (retries >= maxRetries) {
+        throw error;
+      }
+      
+      console.log(`Retry ${retries + 1}/${maxRetries} after ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      
+      retries++;
+      delay *= 2; // Exponential backoff
+    }
+  }
+}
+
 export async function generateGame(prompt: string): Promise<GenerationResponse> {
   try {
-    const { data, error } = await supabase.functions.invoke('generate-game/generate', {
-      body: { prompt }
+    console.log('Generating game with prompt:', prompt);
+    
+    const response = await retryWithBackoff(async () => {
+      const { data, error } = await supabase.functions.invoke('generate-game/generate', {
+        body: { prompt }
+      });
+
+      if (error) {
+        console.error('Error from Supabase function:', error);
+        throw new Error(`Failed to generate game: ${error.message}`);
+      }
+      
+      if (!data) {
+        throw new Error('No data returned from generate-game function');
+      }
+      
+      return { data, error };
     });
 
+    const { data, error } = response;
+    
     if (error) {
       console.error('Error generating game:', error);
       throw new Error(`Failed to generate game: ${error.message}`);
@@ -62,10 +105,27 @@ export async function generateGame(prompt: string): Promise<GenerationResponse> 
 
 export async function buildGame(jobId: string): Promise<BuildResponse> {
   try {
-    const { data, error } = await supabase.functions.invoke('generate-game/build', {
-      body: { jobId }
+    console.log('Building game with jobId:', jobId);
+    
+    const response = await retryWithBackoff(async () => {
+      const { data, error } = await supabase.functions.invoke('generate-game/build', {
+        body: { jobId }
+      });
+      
+      if (error) {
+        console.error('Error from Supabase function:', error);
+        throw new Error(`Failed to build game: ${error.message}`);
+      }
+      
+      if (!data) {
+        throw new Error('No data returned from build function');
+      }
+      
+      return { data, error };
     });
-
+    
+    const { data, error } = response;
+    
     if (error) {
       console.error('Error building game:', error);
       throw new Error(`Failed to build game: ${error.message}`);
@@ -89,10 +149,27 @@ export async function buildGame(jobId: string): Promise<BuildResponse> {
 
 export async function improveGame(jobId: string, prompt: string): Promise<ImproveResponse> {
   try {
-    const { data, error } = await supabase.functions.invoke('generate-game/improve', {
-      body: { jobId, prompt }
+    console.log('Improving game with jobId:', jobId, 'prompt:', prompt);
+    
+    const response = await retryWithBackoff(async () => {
+      const { data, error } = await supabase.functions.invoke('generate-game/improve', {
+        body: { jobId, prompt }
+      });
+      
+      if (error) {
+        console.error('Error from Supabase function:', error);
+        throw new Error(`Failed to improve game: ${error.message}`);
+      }
+      
+      if (!data) {
+        throw new Error('No data returned from improve function');
+      }
+      
+      return { data, error };
     });
-
+    
+    const { data, error } = response;
+    
     if (error) {
       console.error('Error improving game:', error);
       throw new Error(`Failed to improve game: ${error.message}`);
@@ -116,10 +193,21 @@ export async function improveGame(jobId: string, prompt: string): Promise<Improv
 
 export async function getGameLogs(jobId: string): Promise<LogsResponse> {
   try {
-    const { data, error } = await supabase.functions.invoke('generate-game/logs', {
-      body: { jobId }
+    const response = await retryWithBackoff(async () => {
+      const { data, error } = await supabase.functions.invoke('generate-game/logs', {
+        body: { jobId }
+      });
+      
+      if (error) {
+        console.error('Error from Supabase function:', error);
+        throw new Error(`Failed to get game logs: ${error.message}`);
+      }
+      
+      return { data, error };
     });
-
+    
+    const { data, error } = response;
+    
     if (error) {
       console.error('Error getting game logs:', error);
       throw new Error(`Failed to get game logs: ${error.message}`);

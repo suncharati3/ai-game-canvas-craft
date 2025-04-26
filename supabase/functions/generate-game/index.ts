@@ -6,6 +6,7 @@ const RENDER_URL = Deno.env.get("RENDER_URL")!;
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS',
 }
 
 serve(async (req) => {
@@ -107,7 +108,13 @@ serve(async (req) => {
       })
 
       if (!response.ok) {
-        throw new Error(`Build service error: ${response.status}`)
+        const errorText = await response.text();
+        console.error('Build service error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`Build service error: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
@@ -141,7 +148,13 @@ serve(async (req) => {
       })
 
       if (!response.ok) {
-        throw new Error(`Improve service error: ${response.status}`)
+        const errorText = await response.text();
+        console.error('Improve service error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`Improve service error: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
@@ -171,7 +184,13 @@ serve(async (req) => {
       const response = await fetch(`${RENDER_URL}/logs/${jobId}`)
 
       if (!response.ok) {
-        throw new Error(`Logs service error: ${response.status}`)
+        const errorText = await response.text();
+        console.error('Logs service error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`Logs service error: ${response.status} - ${errorText}`)
       }
 
       const data = await response.json()
