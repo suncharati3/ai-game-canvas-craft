@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
@@ -369,4 +368,161 @@ async def build_game(request: Request):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-# ... keep existing code (improve, logs, download, preview, file endpoints)
+@app.get("/logs/{job_id}")
+async def get_logs(job_id: str):
+    """Retrieve build logs for a specific job ID"""
+    log_file_path = f"/tmp/projects/{job_id}/build.log"
+    
+    if os.path.exists(log_file_path):
+        try:
+            with open(log_file_path, "r") as log_file:
+                logs = log_file.readlines()
+            return {"jobId": job_id, "logs": logs}
+        except Exception as e:
+            print(f"Error reading log file: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        return {"jobId": job_id, "logs": ["No logs found for this job."]}
+
+@app.post("/improve")
+async def improve_game(request: Request):
+    """Endpoint to improve the game using GPT-Engineer"""
+    try:
+        data = await request.json()
+        job_id = data.get("jobId")
+        prompt = data.get("prompt")
+        
+        if not job_id:
+            raise HTTPException(status_code=400, detail="Job ID is required")
+        if not prompt:
+            raise HTTPException(status_code=400, detail="Prompt is required")
+            
+        proj_dir = f"/tmp/projects/{job_id}"
+        log_file_path = os.path.join(proj_dir, "build.log")
+        
+        # Make sure the project directory exists
+        if not os.path.exists(proj_dir):
+            raise HTTPException(status_code=404, detail="Project directory not found")
+            
+        # Pull any edits from storage
+        pull_edits(job_id, proj_dir)
+        
+        # Construct the GPT-Engineer prompt
+        full_prompt = f"{prompt}\n\nHere is the existing code (read-only): {proj_dir}"
+        
+        # Define environment variables for the subprocess
+        env = os.environ.copy()
+        env["GPTE_AUTO_EXECUTE"] = "true"  # Ensure GPT-Engineer runs non-interactively
+        
+        # Run GPT-Engineer with the prompt and project directory
+        command = ["gpte", "--llm=gpt-4", "--model=gpt-4", "--temperature=0.8", proj_dir]
+        
+        # Log the command and prompt
+        print(f"Running GPT-Engineer with command: {' '.join(command)}")
+        print(f"GPT-Engineer prompt: {full_prompt}")
+        
+        # Open the log file for appending
+        with open(log_file_path, "a") as log_file:
+            # Run the GPT-Engineer command and capture its output
+            process = subprocess.Popen(
+                command,
+                cwd=proj_dir,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            
+            # Read the output line by line and write it to the log file
+            while True:
+                line = process.stdout.readline()
+                if not line:
+                    break
+                print(line.strip())  # Print to server console
+                log_file.write(line)  # Write to log file
+                log_file.flush()  # Ensure immediate write to disk
+            
+            # Wait for the process to complete and check the return code
+            process.wait()
+            if process.returncode != 0:
+                error_message = f"GPT-Engineer failed with return code: {process.returncode}"
+                print(error_message)
+                log_file.write(error_message + "\n")
+                raise HTTPException(status_code=500, detail=error_message)
+        
+        # After GPT-Engineer has run, upload the changes to Supabase storage
+        proj_storage_path = f"projects/{job_id}"
+        print(f"Saving improved project files to Supabase storage: {proj_storage_path}")
+        
+        # Walk through the project directory and upload each file
+        for root, _, files in os.walk(proj_dir):
+            for file in files:
+                file_path = os.path.join(root, file)
+                rel_path = os.path.relpath(file_path, proj_dir)
+                storage_path = f"{proj_storage_path}/{rel_path}"
+                
+                # Determine content type based on file extension
+                content_type = "text/plain"
+                if file.endswith(".html"):
+                    content_type = "text/html"
+                elif file.endswith(".js"):
+                    content_type = "application/javascript"
+                elif file.endswith(".css"):
+                    content_type = "text/css"
+                elif file.endswith(".json"):
+                    content_type = "application/json"
+                    
+                try:
+                    with open(file_path, 'rb') as f:
+                        file_data = f.read()
+                        if supabase:
+                            result = supabase.storage.from_('game-builds').upload(
+                                path=storage_path,
+                                file=file_data,
+                                file_options={"content-type": content_type, "upsert": "true"}
+                            )
+                            print(f"Uploaded {storage_path} to storage: {result}")
+                except Exception as e:
+                    print(f"Error uploading {storage_path}: {e}")
+        
+        return {"status": "success", "jobId": job_id}
+    except Exception as e:
+        print(f"Error in /improve: {e}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/download/{job_id}")
+async def download_game(job_id: str):
+    """Serve the zip file for a specific job ID"""
+    file_path = f"/tmp/{job_id}.zip"
+    
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="application/zip", filename=f"{job_id}.zip")
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
+
+@app.get("/preview/{job_id}")
+async def preview_game(job_id: str):
+    """Serve the index.html file for preview"""
+    file_path = f"/tmp/projects/{job_id}/dist/index.html"
+    
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="text/html")
+    else:
+        raise HTTPException(status_code=404, detail="File not found")
+
+@app.get("/file/{job_id}/{file_path:path}")
+async def get_file(job_id: str, file_path: str):
+    """Retrieve a specific file from the project directory"""
+    full_path = os.path.join("/tmp/projects", job_id, file_path)
+    
+    if os.path.exists(full_path):
+        try:
+            with open(full_path, "r") as f:
+                content = f.read()
+            return Response(content, media_type="text/plain")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+    else:
+        raise HTTPException(status_code=404, detail="File not found")

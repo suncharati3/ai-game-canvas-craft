@@ -90,7 +90,7 @@ export async function downloadGameZip(jobId: string): Promise<string | null> {
       
       // Last resort: try direct URL from the Render service
       // Use environment configuration or a fallback URL instead of Deno.env
-      const renderUrl = process.env.RENDER_URL || "https://ai-game-canvas-craft.onrender.com";
+      const renderUrl = "https://ai-game-canvas-craft.onrender.com";
       return `${renderUrl}/download/${jobId}`;
     }
     
