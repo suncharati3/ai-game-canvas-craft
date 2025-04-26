@@ -1,4 +1,3 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -193,6 +192,8 @@ export async function improveGame(jobId: string, prompt: string): Promise<Improv
 
 export async function getGameLogs(jobId: string): Promise<LogsResponse> {
   try {
+    console.log('Getting logs for jobId:', jobId);
+    
     const response = await retryWithBackoff(async () => {
       const { data, error } = await supabase.functions.invoke('generate-game/logs', {
         body: { jobId }

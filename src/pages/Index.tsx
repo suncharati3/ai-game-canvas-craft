@@ -5,7 +5,7 @@ import { DiagramPlan } from "@/components/diagrams/diagram-plan";
 import { toast } from "sonner";
 import { useNavigate } from "react-router-dom";
 import { NavigationBar } from "@/components/ui/navigation-bar";
-import { generateGame } from "@/services/ai-service";
+import { generateGame, getGameLogs } from "@/services/ai-service";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
@@ -20,19 +20,24 @@ const Index = () => {
   const [retryCount, setRetryCount] = useState(0);
   const navigate = useNavigate();
 
-  const handlePromptSubmit = async (inputPrompt: string) => {
-    setIsProcessing(true);
-    setPrompt(inputPrompt);
-    setError(null);
-    
+  const fetchDiagram = async (jobId: string) => {
     try {
-      // Use the AI service to generate the diagram and get a job ID
-      const response = await generateGame(inputPrompt);
-      setJobId(response.jobId);
-      
-      // For now, we'll create a formatted diagram based on the prompt
-      // In a production app, this would come from the AI service response
-      const generatedDiagram = `# Game Architecture Diagram for: "${inputPrompt}"
+      // Fetch logs which should contain the plan
+      const logs = await getGameLogs(jobId);
+      if (logs && logs.logs && logs.logs.length > 0) {
+        // Find diagram/plan in logs
+        const planLog = logs.logs.find(log => 
+          log.includes("# Game Architecture Diagram") || log.includes("Game Plan:"));
+        
+        if (planLog) {
+          setDiagram(planLog);
+        } else {
+          // If we can't find a specific plan, show all logs as the plan
+          setDiagram(logs.logs.join('\n'));
+        }
+      } else {
+        // If no logs are available, show a default plan
+        const defaultPlan = `# Game Architecture Diagram for: "${prompt}"
 
 ## Game Structure
 - Main Scene
@@ -56,22 +61,47 @@ Camera System <---> Player Controller
 UI Manager <---> Game State
 Audio Manager <---> Game Events
 
-## Data Flow
-1. Input Controller captures user input
-2. Player Controller processes input
-3. Physics Engine updates game state
-4. World Environment responds to changes
-5. UI Manager updates display
-6. Audio Manager plays corresponding sounds
-
 ## Technical Implementation
 - Use Three.js for 3D rendering
 - Implement component-based architecture
 - Use event system for decoupled communication
 - Implement state management for game progression
 - Utilize asset preloading for performance optimization`;
+        
+        setDiagram(defaultPlan);
+      }
+    } catch (error) {
+      console.error("Error fetching diagram:", error);
+      // On error, still show a default plan so the user can continue
+      const defaultPlan = `# Game Architecture Diagram for: "${prompt}"
+
+## Game Structure
+- Generated based on your prompt: "${prompt}"
+- Main components and systems
+- Asset requirements
+
+## Technical Implementation
+- Three.js rendering
+- Component-based architecture
+- Event-driven communication`;
       
-      setDiagram(generatedDiagram);
+      setDiagram(defaultPlan);
+    }
+  };
+
+  const handlePromptSubmit = async (inputPrompt: string) => {
+    setIsProcessing(true);
+    setPrompt(inputPrompt);
+    setError(null);
+    
+    try {
+      // Use the AI service to generate the game and get a job ID
+      const response = await generateGame(inputPrompt);
+      setJobId(response.jobId);
+      
+      // Fetch the actual plan from the logs
+      await fetchDiagram(response.jobId);
+      
       toast.success("Game plan generated successfully!");
     } catch (error) {
       console.error("Error generating game:", error);

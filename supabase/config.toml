@@ -1,21 +1,39 @@
 
-# This file is used to configure your Supabase project's functions.
 project_id = "fnukymxxxcbjbqzzjzli"
 
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "storage", "graphql_public"]
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 15
+
+[studio]
+enabled = true
+port = 54323
+api_url = "http://localhost"
+
+[auth]
+enabled = true
+
+[storage]
+enabled = true
+file_size_limit = "50MiB"
+
+[realtime]
+enabled = true
+
+[functions]
 [functions.generate-game]
 verify_jwt = false
-
-[functions.generate-game.paths.generate]
+[functions.logs]
 verify_jwt = false
-
-[functions.generate-game.paths.build]
+[functions.download]
 verify_jwt = false
-
-[functions.generate-game.paths.improve]
+[functions.build]
 verify_jwt = false
-
-[functions.generate-game.paths.logs]
-verify_jwt = false
-
-[functions.generate-game.paths.download]
+[functions.improve]
 verify_jwt = false
