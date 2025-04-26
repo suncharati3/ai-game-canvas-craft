@@ -1,5 +1,5 @@
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { FileTree } from "./file-tree";
 import { CodeEditor } from "./code-editor";
 import { GamePreview } from "./game-preview";
@@ -22,6 +22,14 @@ interface EditorLayoutProps {
   onError?: (error: { message: string, filename: string, lineno: number }) => void;
 }
 
+// Define the TreeNode interface to match what FileTree component expects
+interface TreeNode {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  children?: TreeNode[];
+}
+
 export function EditorLayout({
   jobId,
   zipUrl,
@@ -34,9 +42,25 @@ export function EditorLayout({
   onError
 }: EditorLayoutProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const { tree, files, loading, error: zipError } = useZipTree(zipUrl);
+  const { tree: fileTree, files, loading, error: zipError } = useZipTree(zipUrl);
   const { code, save, saving } = useFile(jobId, selectedPath);
   const [isRunning, setIsRunning] = useState(false);
+  
+  // Convert FileTreeNode[] to TreeNode[] format
+  const tree = useMemo(() => {
+    const convertToTreeNode = (fileNode: any): TreeNode => {
+      return {
+        name: fileNode.name,
+        path: fileNode.path,
+        isDirectory: fileNode.type === 'directory',
+        children: fileNode.children ? 
+          fileNode.children.map((child: any) => convertToTreeNode(child)) : 
+          undefined
+      };
+    };
+    
+    return fileTree.map(node => convertToTreeNode(node));
+  }, [fileTree]);
   
   const handleFileSelect = (path: string) => {
     setSelectedPath(path);
