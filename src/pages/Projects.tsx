@@ -59,8 +59,10 @@ export default function Projects() {
         .single();
       
       if (error) throw error;
+      
+      // Immediately redirect to editor with the new project ID
       navigate(`/editor?project=${data.id}`);
-      toast.success("Project created successfully");
+      toast.success("Project created successfully, redirecting to editor...");
     } catch (error: any) {
       toast.error(`Failed to create project: ${error.message}`);
     }

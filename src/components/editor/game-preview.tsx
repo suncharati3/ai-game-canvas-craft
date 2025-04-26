@@ -46,30 +46,30 @@ export function GamePreview({
         
         // Add error handler to iframe window
         if (iframe.contentWindow) {
-          iframe.contentWindow.onerror = handleError;
+          // Type assertion to ensure TypeScript knows console exists
+          const iframeWindow = iframe.contentWindow as Window & typeof globalThis;
+          iframeWindow.onerror = handleError;
           
           // Override console.error
-          if (iframe.contentWindow.console) {
-            const originalConsoleError = iframe.contentWindow.console.error;
-            iframe.contentWindow.console.error = (...args: any[]) => {
-              if (originalConsoleError) {
-                originalConsoleError.apply(iframe.contentWindow?.console, args);
-              }
-              
-              // Format as error event for our handler
-              const errorMsg = args.map(arg => 
-                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-              ).join(' ');
-              
-              if (onError) {
-                onError({
-                  message: `Console error: ${errorMsg}`,
-                  filename: 'console',
-                  lineno: 0
-                });
-              }
-            };
-          }
+          const originalConsoleError = iframeWindow.console.error;
+          iframeWindow.console.error = (...args: any[]) => {
+            if (originalConsoleError) {
+              originalConsoleError.apply(iframeWindow.console, args);
+            }
+            
+            // Format as error event for our handler
+            const errorMsg = args.map(arg => 
+              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+            ).join(' ');
+            
+            if (onError) {
+              onError({
+                message: `Console error: ${errorMsg}`,
+                filename: 'console',
+                lineno: 0
+              });
+            }
+          };
         }
         
         iframeDoc.close();
@@ -78,16 +78,19 @@ export function GamePreview({
     
     // Add error listener to the iframe if using URL
     if (iframe.contentWindow && previewUrl) {
-      iframe.contentWindow.onerror = handleError;
+      // Type assertion to ensure TypeScript knows console exists
+      const iframeWindow = iframe.contentWindow as Window & typeof globalThis;
+      iframeWindow.onerror = handleError;
     }
 
     return () => {
       // Clean up event listeners
       if (iframe.contentWindow) {
-        iframe.contentWindow.onerror = null;
-        if (iframe.contentWindow.console) {
-          // Restore original console.error if possible
-          delete iframe.contentWindow.console.error;
+        const iframeWindow = iframe.contentWindow as Window & typeof globalThis;
+        iframeWindow.onerror = null;
+        // Restore original console.error if possible
+        if (iframeWindow.console) {
+          delete iframeWindow.console.error;
         }
       }
     };

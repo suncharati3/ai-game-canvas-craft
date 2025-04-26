@@ -7,6 +7,7 @@ import { EditorLayout } from "@/components/editor/editor-layout";
 import { ChatInterface } from "@/components/editor/chat-interface";
 import { useProject } from "@/hooks/useProject";
 import { generateGame, buildGame, improveGame, getGameLogs } from "@/services/ai-service";
+import { ensureStorageBucket } from "@/services/storage-service";
 
 interface Message {
   id: string;
@@ -63,6 +64,16 @@ const Editor = () => {
       setGameCode(project.game_code);
     }
   }, [project]);
+  
+  useEffect(() => {
+    if (projectId) {
+      ensureStorageBucket().then(success => {
+        if (!success) {
+          toast.error("Failed to ensure storage bucket exists. Some features may not work correctly.");
+        }
+      });
+    }
+  }, [projectId]);
   
   const handleToggleRunning = () => {
     setIsRunning(prevState => !prevState);

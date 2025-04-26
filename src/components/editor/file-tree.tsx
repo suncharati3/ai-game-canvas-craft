@@ -13,7 +13,7 @@ interface TreeNode {
 interface FileTreeProps {
   files: TreeNode[];
   onSelect: (path: string) => void;
-  selectedPath?: string;
+  selectedPath?: string | null;
 }
 
 export function FileTree({ files, onSelect, selectedPath }: FileTreeProps) {
@@ -28,7 +28,7 @@ export function FileTree({ files, onSelect, selectedPath }: FileTreeProps) {
 interface TreeViewProps {
   files: TreeNode[];
   onSelect: (path: string) => void;
-  selectedPath?: string;
+  selectedPath?: string | null;
   level?: number;
 }
 
