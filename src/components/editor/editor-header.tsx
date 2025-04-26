@@ -1,7 +1,7 @@
 
 import React from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, Save, Code, Settings, FileText, Gamepad, Image, Layout, Layers } from "lucide-react";
+import { ArrowLeft, Save, Code, Settings, FileText, Gamepad, Image, Layout, Layers, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Menubar,
