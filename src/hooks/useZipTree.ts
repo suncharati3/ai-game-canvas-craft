@@ -42,8 +42,7 @@ export function useZipTree(zipUrl: string | null) {
             return;
           }
 
-          const blob = await data.blob();
-          const zip = await JSZip.loadAsync(blob);
+          const zip = await JSZip.loadAsync(data);
           
           const fileTreeObj: Record<string, TreeNode> = {};
           const fileContents: Record<string, string> = {};
