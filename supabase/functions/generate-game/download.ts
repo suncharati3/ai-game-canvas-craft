@@ -1,7 +1,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-const RENDER_URL = Deno.env.get("RENDER_URL")!;
+const RENDER_URL = Deno.env.get("RENDER_URL") || "https://ai-game-canvas-craft.onrender.com";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,10 +16,6 @@ serve(async (req) => {
   }
 
   try {
-    if (!RENDER_URL) {
-      throw new Error('RENDER_URL environment variable not set');
-    }
-
     let jobId = '';
     
     // Handle both GET and POST methods

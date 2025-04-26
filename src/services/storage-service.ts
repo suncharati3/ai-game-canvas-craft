@@ -89,7 +89,8 @@ export async function downloadGameZip(jobId: string): Promise<string | null> {
       console.error("Error getting download URL from edge function:", error);
       
       // Last resort: try direct URL from the Render service
-      const renderUrl = Deno.env.get("RENDER_URL") || "https://ai-game-canvas-craft.onrender.com";
+      // Use environment configuration or a fallback URL instead of Deno.env
+      const renderUrl = process.env.RENDER_URL || "https://ai-game-canvas-craft.onrender.com";
       return `${renderUrl}/download/${jobId}`;
     }
     
