@@ -1,9 +1,8 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 // The storage bucket where all game files will be stored
-const STORAGE_BUCKET = "games";
+const STORAGE_BUCKET = "game-builds";
 
 // Check if the storage bucket exists, if not create it
 export async function ensureStorageBucket() {
@@ -23,19 +22,22 @@ export async function ensureStorageBucket() {
         });
         
       if (createError) {
-        throw createError;
+        toast.error(`Failed to create bucket: ${createError.message}`);
+        return false;
       }
       
-      console.log(`Created storage bucket: ${STORAGE_BUCKET}`);
+      toast.success(`Created storage bucket: ${STORAGE_BUCKET}`);
       return true;
     } else if (error) {
-      throw error;
+      toast.error(`Bucket check error: ${error.message}`);
+      return false;
     }
     
     console.log(`Storage bucket exists: ${STORAGE_BUCKET}`);
     return true;
   } catch (error) {
     console.error("Error ensuring storage bucket:", error);
+    toast.error(`Unexpected error with storage: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }

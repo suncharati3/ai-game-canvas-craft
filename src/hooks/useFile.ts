@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 export function useFile(jobId: string | null, path: string | null) {
   const [code, setCode] = useState<string>('');
@@ -24,7 +25,7 @@ export function useFile(jobId: string | null, path: string | null) {
         const editPath = `edits/${jobId}/${path}`;
         const { data: editData, error: editError } = await supabase
           .storage
-          .from('games')
+          .from('game-builds')
           .download(editPath);
           
         if (editData && !editError) {
@@ -38,7 +39,7 @@ export function useFile(jobId: string | null, path: string | null) {
         const originalPath = `projects/${jobId}/${path}`;
         const { data: originalData, error: originalError } = await supabase
           .storage
-          .from('games')
+          .from('game-builds')
           .download(originalPath);
           
         if (originalData && !originalError) {
@@ -46,11 +47,13 @@ export function useFile(jobId: string | null, path: string | null) {
           setCode(text);
         } else {
           // Handle case where file doesn't exist
+          toast.error(`File not found: ${path}`);
           setError(new Error(`File not found: ${path}`));
           setCode('');
         }
       } catch (err) {
         console.error(`Error loading file ${path}:`, err);
+        toast.error(`Failed to load file: ${err instanceof Error ? err.message : String(err)}`);
         setError(err instanceof Error ? err : new Error(String(err)));
       } finally {
         setLoading(false);
@@ -70,7 +73,7 @@ export function useFile(jobId: string | null, path: string | null) {
       const editPath = `edits/${jobId}/${path}`;
       const { error } = await supabase
         .storage
-        .from('games')
+        .from('game-builds')
         .upload(editPath, newCode, {
           contentType: 'text/plain',
           upsert: true
@@ -80,9 +83,11 @@ export function useFile(jobId: string | null, path: string | null) {
         throw error;
       }
       
+      toast.success('File saved successfully');
       setCode(newCode);
     } catch (err) {
       console.error(`Error saving file ${path}:`, err);
+      toast.error(`Failed to save file: ${err instanceof Error ? err.message : String(err)}`);
       setError(err instanceof Error ? err : new Error(String(err)));
     } finally {
       setSaving(false);
