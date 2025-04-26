@@ -34,26 +34,29 @@ export function GamePreview({
     <div className="flex flex-col h-full">
       <div className="flex justify-between items-center mb-2 p-2">
         <h2 className="text-lg font-semibold">Game Preview</h2>
-        <Button 
-          onClick={onToggleRunning} 
-          variant={isRunning ? "outline" : "default"}
-          className={isRunning ? "border-game-accent text-game-accent" : "game-gradient"}
-        >
-          {isRunning ? (
-            <div className="flex items-center gap-2">
-              <Square className="h-4 w-4" />
-              <span>Stop</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <Play className="h-4 w-4" />
-              <span>Run</span>
-            </div>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={onToggleRunning} 
+            variant={isRunning ? "outline" : "default"}
+            className={isRunning ? "border-game-accent text-game-accent" : "game-gradient"}
+            size="sm"
+          >
+            {isRunning ? (
+              <>
+                <Square className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Stop</span>
+              </>
+            ) : (
+              <>
+                <Play className="h-4 w-4 mr-2" />
+                <span className="hidden sm:inline">Run</span>
+              </>
+            )}
+          </Button>
+        </div>
       </div>
       
-      <div className="flex-1 glass-panel p-0 overflow-hidden">
+      <div className="flex-1 glass-panel p-0 overflow-hidden rounded-lg">
         {isRunning ? (
           <iframe
             ref={iframeRef}

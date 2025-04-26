@@ -1,12 +1,9 @@
-
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { GamePreview } from "@/components/editor/game-preview";
 import { ChatInterface } from "@/components/editor/chat-interface";
-import { ControlPanel } from "@/components/editor/control-panel";
-import { ArrowLeft } from "lucide-react";
+import { EditorHeader } from "@/components/editor/editor-header";
 
 interface Message {
   id: string;
@@ -163,7 +160,6 @@ const Editor = () => {
   const handleSaveProject = async () => {
     setIsSaving(true);
     try {
-      // Mock saving process
       await new Promise(resolve => setTimeout(resolve, 1500));
       toast.success("Project saved successfully!");
     } catch (error) {
@@ -206,40 +202,18 @@ const Editor = () => {
   };
   
   return (
-    <div className="min-h-screen flex flex-col">
-      {/* Header */}
-      <header className="p-4 border-b border-slate-800 flex items-center justify-between">
-        <div className="flex items-center">
-          <Button 
-            variant="outline" 
-            size="sm" 
-            className="mr-4"
-            onClick={() => navigate("/")}
-          >
-            <ArrowLeft className="h-4 w-4 mr-1" />
-            Back
-          </Button>
-          <h1 className="text-xl font-bold game-gradient-text">Game Editor</h1>
-        </div>
-      </header>
+    <div className="min-h-screen flex flex-col bg-background">
+      <EditorHeader
+        onSave={handleSaveProject}
+        onCodeView={() => setActiveTab("code")}
+        onSettingsView={() => setActiveTab("settings")}
+        onFilesView={() => setActiveTab("files")}
+        isSaving={isSaving}
+        activeTab={activeTab}
+      />
       
-      {/* Main Content */}
-      <div className="flex-1 grid grid-cols-12 gap-4 p-4">
-        {/* Control Panel */}
-        <div className="col-span-1">
-          <ControlPanel
-            onSave={handleSaveProject}
-            onCodeView={() => setActiveTab("code")}
-            onSettingsView={() => setActiveTab("settings")}
-            onFilesView={() => setActiveTab("files")}
-            onDashboardView={() => setActiveTab("dashboard")}
-            isSaving={isSaving}
-            activeTab={activeTab}
-          />
-        </div>
-        
-        {/* Game Preview */}
-        <div className="col-span-7 h-[calc(100vh-130px)]">
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
+        <div className="md:col-span-8 h-[calc(100vh-130px)]">
           <GamePreview 
             isRunning={isRunning} 
             onToggleRunning={handleToggleRunning}
@@ -247,8 +221,7 @@ const Editor = () => {
           />
         </div>
         
-        {/* Chat Interface */}
-        <div className="col-span-4 h-[calc(100vh-130px)]">
+        <div className="md:col-span-4 h-[calc(100vh-130px)]">
           <ChatInterface
             onSendMessage={handleSendMessage}
             isProcessing={isProcessing}
