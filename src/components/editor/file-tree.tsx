@@ -20,7 +20,11 @@ export function FileTree({ files, onSelect, selectedPath }: FileTreeProps) {
   return (
     <div className="w-full overflow-auto p-2 bg-background border rounded-md">
       <h3 className="font-semibold mb-2 px-2">Files</h3>
-      <TreeView files={files} onSelect={onSelect} selectedPath={selectedPath} />
+      <TreeView 
+        files={files} 
+        onSelect={onSelect} 
+        selectedPath={selectedPath} 
+      />
     </div>
   );
 }
@@ -32,7 +36,12 @@ interface TreeViewProps {
   level?: number;
 }
 
-export function TreeView({ files, onSelect, selectedPath, level = 0 }: TreeViewProps) {
+export function TreeView({ 
+  files, 
+  onSelect, 
+  selectedPath = null, 
+  level = 0 
+}: TreeViewProps) {
   return (
     <ul className={cn("pl-2", level === 0 ? "" : "border-l border-slate-700")}>
       {files.map((file) => (
@@ -42,6 +51,7 @@ export function TreeView({ files, onSelect, selectedPath, level = 0 }: TreeViewP
           onSelect={onSelect}
           isSelected={selectedPath === file.path}
           level={level}
+          selectedPath={selectedPath}
         />
       ))}
     </ul>
@@ -53,9 +63,16 @@ interface TreeItemProps {
   onSelect: (path: string) => void;
   isSelected: boolean;
   level: number;
+  selectedPath?: string | null;
 }
 
-function TreeItem({ file, onSelect, isSelected, level }: TreeItemProps) {
+function TreeItem({ 
+  file, 
+  onSelect, 
+  isSelected, 
+  level, 
+  selectedPath 
+}: TreeItemProps) {
   const [isOpen, setIsOpen] = React.useState(level < 1);
 
   const toggleOpen = (e: React.MouseEvent) => {
