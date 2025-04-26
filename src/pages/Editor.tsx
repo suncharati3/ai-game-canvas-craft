@@ -48,6 +48,7 @@ const Editor = () => {
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildLogs, setBuildLogs] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempts, setLoadAttempts] = useState(0);
   
   useEffect(() => {
     if (!jobId) {
@@ -60,40 +61,56 @@ const Editor = () => {
       try {
         setBuildLogs(prev => [...prev, `Initializing editor with job ID: ${jobId}`]);
         
-        // Try to get a signed URL from Supabase for this job ID
+        // Try multiple methods to get the ZIP file
+        let zipUrl = null;
+        let method = '';
+        
+        // Method 1: Try to get a signed URL from Supabase
         try {
           const { data: signedData, error: signedError } = await supabase.storage
             .from('game-builds')
             .createSignedUrl(`${jobId}.zip`, 3600);
           
           if (signedData && !signedError) {
-            setBuildLogs(prev => [...prev, `Got signed URL for ${jobId}.zip`]);
-            setZipUrl(signedData.signedUrl);
+            setBuildLogs(prev => [...prev, `Method 1: Got signed URL for ${jobId}.zip`]);
+            zipUrl = signedData.signedUrl;
+            method = 'signed-url';
           } else {
-            console.warn('Could not get signed URL:', signedError);
-            
-            // Fall back to the Supabase function
+            console.warn('Method 1 failed:', signedError);
+          }
+        } catch (err) {
+          console.warn('Method 1 error:', err);
+        }
+        
+        // Method 2: Try the Supabase function if Method 1 failed
+        if (!zipUrl) {
+          try {
             const { data: funcData, error: funcError } = await supabase.functions.invoke('generate-game/download', {
               body: { jobId }
             });
             
             if (funcData && funcData.download && !funcError) {
-              setBuildLogs(prev => [...prev, `Got download URL from function: ${funcData.download}`]);
-              setZipUrl(funcData.download);
+              setBuildLogs(prev => [...prev, `Method 2: Got download URL from function: ${funcData.download}`]);
+              zipUrl = funcData.download;
+              method = 'edge-function';
             } else {
-              console.warn('Could not get download URL from function:', funcError);
-              
-              // Last resort
-              setBuildLogs(prev => [...prev, `Using direct download URL: /download/${jobId}`]);
-              // Use a fully qualified URL if we have the RENDER_URL, otherwise a relative path
-              setZipUrl(`/download/${jobId}`);
+              console.warn('Method 2 failed:', funcError);
             }
+          } catch (err) {
+            console.warn('Method 2 error:', err);
           }
-        } catch (err) {
-          console.error('Error getting signed URL:', err);
-          setBuildLogs(prev => [...prev, `Error getting signed URL: ${err}`]);
-          setZipUrl(`/download/${jobId}`);
         }
+        
+        // Method 3: Last resort, use direct download path
+        if (!zipUrl) {
+          const directUrl = `/download/${jobId}`;
+          setBuildLogs(prev => [...prev, `Method 3: Using direct download URL: ${directUrl}`]);
+          zipUrl = directUrl;
+          method = 'direct-path';
+        }
+        
+        setBuildLogs(prev => [...prev, `Using ${method} to download ZIP: ${zipUrl}`]);
+        setZipUrl(zipUrl);
         
         const aiMessage: Message = {
           id: Date.now().toString(),
@@ -110,7 +127,21 @@ const Editor = () => {
     };
     
     initializeEditor();
-  }, [jobId, navigate]);
+  }, [jobId, navigate, loadAttempts]);
+  
+  // If we encounter a ZIP loading error, retry with a different method
+  useEffect(() => {
+    if (error && error.includes("Invalid ZIP format") && loadAttempts < 3) {
+      const timer = setTimeout(() => {
+        setBuildLogs(prev => [...prev, `Retrying ZIP download (attempt ${loadAttempts + 1})...`]);
+        setError(null);
+        setZipUrl(null);
+        setLoadAttempts(prev => prev + 1);
+      }, 2000); // Wait 2 seconds before retrying
+      
+      return () => clearTimeout(timer);
+    }
+  }, [error, loadAttempts]);
   
   const handleToggleRunning = () => {
     setIsRunning(prevState => !prevState);
@@ -300,6 +331,7 @@ const Editor = () => {
             onFixWithAI={handleFixWithAI}
             isBuilding={isBuilding}
             buildLogs={buildLogs}
+            onError={handleIframeError}
           />
         </div>
       )}

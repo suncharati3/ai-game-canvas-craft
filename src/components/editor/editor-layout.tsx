@@ -19,6 +19,7 @@ interface EditorLayoutProps {
   onFixWithAI: (error: string) => Promise<void>;
   isBuilding: boolean;
   buildLogs: string[];
+  onError?: (error: { message: string, filename: string, lineno: number }) => void;
 }
 
 export function EditorLayout({
@@ -29,10 +30,11 @@ export function EditorLayout({
   onRunBuild,
   onFixWithAI,
   isBuilding,
-  buildLogs
+  buildLogs,
+  onError
 }: EditorLayoutProps) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const { tree, files } = useZipTree(zipUrl);
+  const { tree, files, loading, error: zipError } = useZipTree(zipUrl);
   const { code, save, saving } = useFile(jobId, selectedPath);
   const [isRunning, setIsRunning] = useState(false);
   
@@ -54,16 +56,39 @@ export function EditorLayout({
     <div className="grid grid-cols-[20%_55%_25%] grid-rows-[1fr_250px] gap-4 h-[calc(100vh-130px)]">
       {/* File Tree */}
       <div className="row-span-1">
-        <FileTree 
-          files={tree} 
-          onSelect={handleFileSelect} 
-          selectedPath={selectedPath}
-        />
+        {loading ? (
+          <div className="flex items-center justify-center h-full border rounded-md bg-secondary">
+            <div className="flex flex-col items-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-2"></div>
+              <p className="text-sm text-muted-foreground">Loading files...</p>
+            </div>
+          </div>
+        ) : zipError ? (
+          <div className="flex items-center justify-center h-full border rounded-md bg-secondary p-4">
+            <div className="flex flex-col items-center text-center">
+              <p className="text-red-500 mb-2">Error loading files</p>
+              <p className="text-xs text-muted-foreground">{zipError.message}</p>
+            </div>
+          </div>
+        ) : (
+          <FileTree 
+            files={tree} 
+            onSelect={handleFileSelect} 
+            selectedPath={selectedPath}
+          />
+        )}
       </div>
       
       {/* Code Editor */}
       <div className="row-span-1">
-        {selectedPath ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-full border rounded-md bg-secondary">
+            <div className="flex flex-col items-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent mb-2"></div>
+              <p className="text-sm text-muted-foreground">Loading code...</p>
+            </div>
+          </div>
+        ) : selectedPath ? (
           <CodeEditor
             value={code}
             onChange={handleCodeChange}
@@ -83,9 +108,7 @@ export function EditorLayout({
           onToggleRunning={handleToggleRunning}
           previewCode={previewUrl ? undefined : code}
           previewUrl={isRunning ? previewUrl : undefined}
-          onError={(error) => {
-            if (error) onFixWithAI(`${error.message} at ${error.filename}:${error.lineno}`);
-          }}
+          onError={onError}
         />
         
         <div className="mt-4 flex gap-2">

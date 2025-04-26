@@ -31,108 +31,183 @@ export function useZipTree(zipUrl: string | null) {
         console.log('Loading ZIP from URL:', zipUrl);
         
         let blob: Blob | null = null;
+        let retryCount = 0;
+        const maxRetries = 3;
         
-        if (zipUrl.startsWith('http')) {
-          // This is a full URL, likely from Render or Supabase
-          const response = await fetch(zipUrl);
-          
-          if (!response.ok) {
-            console.error('URL fetch failed:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('Error details:', errorText.substring(0, 200));
-            throw new Error(`HTTP error from URL: ${response.status}`);
-          }
-          
-          blob = await response.blob();
-          console.log('ZIP blob size from URL:', blob.size);
-          
-          if (blob.size === 0) {
-            throw new Error('Empty ZIP file received from URL');
-          }
-        }
-        else if (zipUrl.includes('/download/')) {
-          // Handle relative URL that needs to be fetched from our Render service
-          // We need to use the full RENDER_URL here, but we don't have it in the frontend
-          // Let's use the Supabase function as a proxy
-          const jobId = zipUrl.split('/download/')[1];
-          
-          if (!jobId) {
-            throw new Error('Invalid download URL format');
-          }
-          
-          console.log('Fetching download using job ID:', jobId);
-          
-          const { data, error: functionError } = await supabase.functions.invoke('generate-game/download', {
-            body: { jobId }
-          });
-          
-          if (functionError || !data || !data.download) {
-            console.error('Function error:', functionError || 'No data returned');
-            throw new Error('Failed to get download URL from Supabase function');
-          }
-          
-          // Now fetch the actual ZIP from the returned URL
-          const downloadUrl = data.download;
-          console.log('Got download URL:', downloadUrl);
-          
-          const response = await fetch(downloadUrl);
-          
-          if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-          }
-          
-          blob = await response.blob();
-          console.log('ZIP blob size:', blob.size);
-        }
-        else if (zipUrl.includes('sign/game-builds')) {
-          // This is a signed Supabase URL
-          const response = await fetch(zipUrl);
-          
-          if (!response.ok) {
-            console.error('Signed URL fetch failed:', response.status, response.statusText);
-            const errorText = await response.text();
-            console.error('Error details:', errorText.substring(0, 200));
-            throw new Error(`HTTP error from signed URL: ${response.status}`);
-          }
-          
-          blob = await response.blob();
-          console.log('ZIP blob size from signed URL:', blob.size);
-          
-          if (blob.size === 0) {
-            throw new Error('Empty ZIP file received from signed URL');
-          }
-        }
-        else {
-          // Try to load from Supabase using path
-          const path = zipUrl.includes('game-builds/') 
-            ? zipUrl.split('game-builds/')[1] 
-            : zipUrl;
+        // Fetch with retry logic
+        while (retryCount < maxRetries) {
+          try {
+            if (zipUrl.startsWith('http')) {
+              // This is a full URL, likely from Render or Supabase
+              const response = await fetch(zipUrl, { 
+                // Bypass cache to ensure we get fresh content
+                cache: 'no-store',
+                headers: {
+                  'Pragma': 'no-cache',
+                  'Cache-Control': 'no-cache'
+                }
+              });
+              
+              if (!response.ok) {
+                console.error('URL fetch failed:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('Error details:', errorText.substring(0, 200));
+                throw new Error(`HTTP error from URL: ${response.status}`);
+              }
+              
+              blob = await response.blob();
+              console.log('ZIP blob size from URL:', blob.size);
+              
+              if (blob.size === 0) {
+                throw new Error('Empty ZIP file received from URL');
+              }
+              
+              break; // Success, exit retry loop
+            }
+            else if (zipUrl.includes('/download/')) {
+              // Handle relative URL that needs to be fetched from our Render service
+              const jobId = zipUrl.split('/download/')[1];
+              
+              if (!jobId) {
+                throw new Error('Invalid download URL format');
+              }
+              
+              console.log('Fetching download using job ID:', jobId);
+              
+              // First try direct download from the URL
+              try {
+                const directResponse = await fetch(zipUrl, {
+                  cache: 'no-store',
+                  headers: {
+                    'Pragma': 'no-cache',
+                    'Cache-Control': 'no-cache'
+                  }
+                });
+                
+                if (directResponse.ok) {
+                  blob = await directResponse.blob();
+                  console.log('ZIP blob size from direct download:', blob.size);
+                  
+                  if (blob.size > 0) {
+                    break; // Success, exit retry loop
+                  }
+                  
+                  console.warn('Empty blob from direct download, trying Supabase function...');
+                }
+              } catch (directError) {
+                console.warn('Direct download failed, trying Supabase function:', directError);
+              }
+              
+              // If direct download failed, try through Supabase function
+              const { data, error: functionError } = await supabase.functions.invoke('generate-game/download', {
+                body: { jobId }
+              });
+              
+              if (functionError || !data || !data.download) {
+                console.error('Function error:', functionError || 'No data returned');
+                throw new Error('Failed to get download URL from Supabase function');
+              }
+              
+              // Now fetch the actual ZIP from the returned URL
+              const downloadUrl = data.download;
+              console.log('Got download URL:', downloadUrl);
+              
+              const response = await fetch(downloadUrl, {
+                cache: 'no-store',
+                headers: {
+                  'Pragma': 'no-cache',
+                  'Cache-Control': 'no-cache'
+                }
+              });
+              
+              if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+              }
+              
+              blob = await response.blob();
+              console.log('ZIP blob size:', blob.size);
+              
+              if (blob.size > 0) {
+                break; // Success, exit retry loop
+              }
+            }
+            else if (zipUrl.includes('sign/game-builds')) {
+              // This is a signed Supabase URL
+              const response = await fetch(zipUrl, {
+                cache: 'no-store',
+                headers: {
+                  'Pragma': 'no-cache',
+                  'Cache-Control': 'no-cache'
+                }
+              });
+              
+              if (!response.ok) {
+                console.error('Signed URL fetch failed:', response.status, response.statusText);
+                const errorText = await response.text();
+                console.error('Error details:', errorText.substring(0, 200));
+                throw new Error(`HTTP error from signed URL: ${response.status}`);
+              }
+              
+              blob = await response.blob();
+              console.log('ZIP blob size from signed URL:', blob.size);
+              
+              if (blob.size > 0) {
+                break; // Success, exit retry loop
+              }
+            }
+            else {
+              // Try to load from Supabase using path
+              const path = zipUrl.includes('game-builds/') 
+                ? zipUrl.split('game-builds/')[1] 
+                : zipUrl;
+                
+              if (!path) {
+                throw new Error('Invalid storage path');
+              }
+              
+              console.log('Downloading from Supabase path:', path);
+              const { data, error: downloadError } = await supabase.storage
+                .from('game-builds')
+                .download(path);
+              
+              if (downloadError || !data) {
+                console.error('Supabase download error:', downloadError);
+                throw downloadError || new Error('No data returned from Supabase');
+              }
+              
+              blob = data;
+              console.log('ZIP data received from Supabase:', data instanceof Blob ? data.size : 'Not a blob');
+              
+              if (blob.size > 0) {
+                break; // Success, exit retry loop
+              }
+            }
             
-          if (!path) {
-            throw new Error('Invalid storage path');
+            retryCount++;
+            console.log(`Attempt ${retryCount} failed, retrying...`);
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between retries
+          } catch (fetchError) {
+            console.error(`Fetch attempt ${retryCount + 1} failed:`, fetchError);
+            retryCount++;
+            
+            if (retryCount >= maxRetries) {
+              throw fetchError;
+            }
+            
+            // Exponential backoff
+            await new Promise(resolve => setTimeout(resolve, retryCount * 1000));
           }
-          
-          console.log('Downloading from Supabase path:', path);
-          const { data, error: downloadError } = await supabase.storage
-            .from('game-builds')
-            .download(path);
-          
-          if (downloadError || !data) {
-            console.error('Supabase download error:', downloadError);
-            throw downloadError || new Error('No data returned from Supabase');
-          }
-          
-          blob = data;
-          console.log('ZIP data received from Supabase:', data instanceof Blob ? data.size : 'Not a blob');
         }
         
-        if (!blob) {
-          throw new Error('Failed to obtain ZIP blob from any source');
+        if (!blob || blob.size === 0) {
+          throw new Error('Failed to obtain valid ZIP blob after multiple attempts');
         }
         
         // Verify it's a ZIP file by checking the first bytes
         const bytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
-        if (bytes[0] !== 0x50 || bytes[1] !== 0x4B) { // ZIP magic number "PK"
+        const isPK = bytes[0] === 0x50 && bytes[1] === 0x4B;
+        
+        if (!isPK) {
           const text = await blob.text();
           console.error('Not a ZIP file. Content:', text.substring(0, 200) + '...');
           throw new Error('Invalid ZIP format: file does not start with ZIP signature');
