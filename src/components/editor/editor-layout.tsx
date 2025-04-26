@@ -7,6 +7,8 @@ import { ChatInterface } from "./chat-interface";
 import { Terminal } from "./terminal";
 import { Button } from "../ui/button";
 import { Hammer, Wrench } from "lucide-react";
+import { useZipTree } from "@/hooks/useZipTree";
+import { useFile } from "@/hooks/useFile";
 
 interface EditorLayoutProps {
   jobId: string | null;
@@ -81,6 +83,9 @@ export function EditorLayout({
           onToggleRunning={handleToggleRunning}
           previewCode={previewUrl ? undefined : code}
           previewUrl={isRunning ? previewUrl : undefined}
+          onError={(error) => {
+            if (error) onFixWithAI(`${error.message} at ${error.filename}:${error.lineno}`);
+          }}
         />
         
         <div className="mt-4 flex gap-2">
@@ -125,6 +130,3 @@ export function EditorLayout({
     </div>
   );
 }
-
-import { useZipTree } from "@/hooks/useZipTree";
-import { useFile } from "@/hooks/useFile";

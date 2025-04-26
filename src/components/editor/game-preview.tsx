@@ -49,23 +49,27 @@ export function GamePreview({
           iframe.contentWindow.onerror = handleError;
           
           // Override console.error
-          const originalConsoleError = iframe.contentWindow.console.error;
-          iframe.contentWindow.console.error = (...args) => {
-            originalConsoleError.apply(iframe.contentWindow?.console, args);
-            
-            // Format as error event for our handler
-            const errorMsg = args.map(arg => 
-              typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-            ).join(' ');
-            
-            if (onError) {
-              onError({
-                message: `Console error: ${errorMsg}`,
-                filename: 'console',
-                lineno: 0
-              });
-            }
-          };
+          if (iframe.contentWindow.console) {
+            const originalConsoleError = iframe.contentWindow.console.error;
+            iframe.contentWindow.console.error = (...args: any[]) => {
+              if (originalConsoleError) {
+                originalConsoleError.apply(iframe.contentWindow?.console, args);
+              }
+              
+              // Format as error event for our handler
+              const errorMsg = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+              ).join(' ');
+              
+              if (onError) {
+                onError({
+                  message: `Console error: ${errorMsg}`,
+                  filename: 'console',
+                  lineno: 0
+                });
+              }
+            };
+          }
         }
         
         iframeDoc.close();
@@ -81,7 +85,7 @@ export function GamePreview({
       // Clean up event listeners
       if (iframe.contentWindow) {
         iframe.contentWindow.onerror = null;
-        if (iframe.contentWindow.console && iframe.contentWindow.console.error) {
+        if (iframe.contentWindow.console) {
           // Restore original console.error if possible
           delete iframe.contentWindow.console.error;
         }

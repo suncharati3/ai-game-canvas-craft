@@ -4,11 +4,9 @@ import { toast } from "sonner";
 import { AIGeneration } from "@/components/editor/ai-generation";
 import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorLayout } from "@/components/editor/editor-layout";
+import { ChatInterface } from "@/components/editor/chat-interface";
 import { useProject } from "@/hooks/useProject";
 import { generateGame, buildGame, improveGame, getGameLogs } from "@/services/ai-service";
-
-// Add JSZip dependency
-
 
 interface Message {
   id: string;
@@ -45,7 +43,6 @@ const Editor = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [gameCode, setGameCode] = useState<string>("");
   
-  // New state for the editor features
   const [jobId, setJobId] = useState<string | null>(null);
   const [zipUrl, setZipUrl] = useState<string | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -99,7 +96,6 @@ const Editor = () => {
     setIsProcessing(true);
     
     try {
-      // If we have a jobId, treat this as an improve request
       if (jobId) {
         await improveGame(jobId, message);
         
@@ -112,10 +108,8 @@ const Editor = () => {
         
         setMessages(prev => [...prev, aiMessage]);
         
-        // Start polling for logs
         pollLogs(jobId);
       } else {
-        // Treat as a normal message
         await new Promise(resolve => setTimeout(resolve, 2000));
         
         const aiMessage: Message = {
@@ -146,7 +140,6 @@ const Editor = () => {
       
       const response = await buildGame(jobId);
       
-      // Start polling for logs
       pollLogs(jobId);
       
       if (response.preview) {
@@ -173,7 +166,6 @@ const Editor = () => {
       
       await improveGame(jobId, `Fix this error: ${errorMessage}`);
       
-      // Start polling for logs
       pollLogs(jobId);
       
       const aiMessage: Message = {
@@ -191,7 +183,6 @@ const Editor = () => {
     }
   };
   
-  // Function to poll for logs
   const pollLogs = useCallback(async (jobId: string) => {
     let active = true;
     
@@ -204,18 +195,15 @@ const Editor = () => {
           setBuildLogs(response.logs);
         }
         
-        // Poll again after a short delay
         setTimeout(checkLogs, 2000);
       } catch (error) {
         console.error("Error polling logs:", error);
-        // Still retry after error
         setTimeout(checkLogs, 5000);
       }
     };
     
     checkLogs();
     
-    // Return cleanup function
     return () => {
       active = false;
     };
@@ -243,7 +231,6 @@ const Editor = () => {
         activeTab={activeTab}
       />
       
-      {/* If we don't have a jobId yet, show the generation UI */}
       {!jobId ? (
         <div className="flex-1 grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
           <div className="md:col-span-8 h-[calc(100vh-130px)]">
@@ -263,7 +250,6 @@ const Editor = () => {
                     }
                     toast.success("Game generated successfully!");
                     
-                    // Add AI message
                     const aiMessage: Message = {
                       id: Date.now().toString(),
                       content: "I've generated your game! You can now explore the files, make edits, and run the game to see it in action.",
@@ -281,7 +267,6 @@ const Editor = () => {
           </div>
           
           <div className="md:col-span-4 h-[calc(100vh-130px)]">
-            {/* Chat interface for initial prompting */}
             <div className="flex flex-col h-full">
               <ChatInterface
                 onSendMessage={handleSendMessage}
@@ -292,7 +277,6 @@ const Editor = () => {
           </div>
         </div>
       ) : (
-        // Show editor layout if we have a jobId
         <div className="p-4">
           <EditorLayout
             jobId={jobId}
