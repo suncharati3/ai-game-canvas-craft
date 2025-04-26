@@ -1,6 +1,7 @@
 
 import { useState, useEffect } from 'react';
 import JSZip from 'jszip';
+import { toast } from 'sonner';
 
 export interface TreeNode {
   name: string;
@@ -28,6 +29,11 @@ export function useZipTree(zipUrl: string | null) {
         setError(null);
         
         const response = await fetch(zipUrl);
+        
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        
         const blob = await response.blob();
         const zip = await JSZip.loadAsync(blob);
         
@@ -107,6 +113,7 @@ export function useZipTree(zipUrl: string | null) {
         
       } catch (err) {
         console.error('Error loading ZIP:', err);
+        toast.error(`Failed to load project files: ${err instanceof Error ? err.message : String(err)}`);
         setError(err instanceof Error ? err : new Error(String(err)));
       } finally {
         setLoading(false);

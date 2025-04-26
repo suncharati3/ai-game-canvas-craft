@@ -1,7 +1,7 @@
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-const RENDER_URL = "https://ai-game-canvas-craft.onrender.com"
+const RENDER_URL = Deno.env.get("RENDER_URL")!;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,7 +32,7 @@ serve(async (req) => {
         )
       }
 
-      // Call Render service
+      // Call Render service using the configurable URL
       const response = await fetch(`${RENDER_URL}/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
