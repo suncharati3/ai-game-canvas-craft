@@ -30,6 +30,8 @@ export function useZipTree(zipUrl: string | null) {
         setError(null);
         console.log('Loading ZIP from URL:', zipUrl);
         
+        let blob: Blob | null = null;
+        
         if (zipUrl.includes('/download/')) {
           // This is a route to our own server
           const response = await fetch(zipUrl);
@@ -38,25 +40,38 @@ export function useZipTree(zipUrl: string | null) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           
-          const blob = await response.blob();
-          console.log('ZIP blob size:', blob.size);
-          const zip = await JSZip.loadAsync(blob);
+          blob = await response.blob();
+          console.log('ZIP blob size from server:', blob.size);
           
-          await processZipContents(zip);
+          if (blob.size === 0) {
+            throw new Error('Empty ZIP file received from server');
+          }
+          
+          // Verify it's a ZIP file by checking the first bytes
+          const bytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+          if (bytes[0] !== 0x50 || bytes[1] !== 0x4B) { // ZIP magic number "PK"
+            const text = await blob.text();
+            console.error('Not a ZIP file. Content:', text.substring(0, 200) + '...');
+            throw new Error('Invalid ZIP format: file does not start with ZIP signature');
+          }
         }
         else if (zipUrl.includes('sign/game-builds')) {
           // This is a signed Supabase URL
           const response = await fetch(zipUrl);
           
           if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            console.error('Signed URL fetch failed:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('Error details:', errorText.substring(0, 200));
+            throw new Error(`HTTP error from signed URL: ${response.status}`);
           }
           
-          const blob = await response.blob();
+          blob = await response.blob();
           console.log('ZIP blob size from signed URL:', blob.size);
-          const zip = await JSZip.loadAsync(blob);
           
-          await processZipContents(zip);
+          if (blob.size === 0) {
+            throw new Error('Empty ZIP file received from signed URL');
+          }
         }
         else {
           // Try to load from Supabase using path
@@ -71,12 +86,42 @@ export function useZipTree(zipUrl: string | null) {
             .download(path);
           
           if (downloadError || !data) {
-            throw downloadError || new Error('No data returned');
+            console.error('Supabase download error:', downloadError);
+            throw downloadError || new Error('No data returned from Supabase');
           }
           
+          blob = data;
           console.log('ZIP data received from Supabase:', data instanceof Blob ? data.size : 'Not a blob');
-          const zip = await JSZip.loadAsync(data);
+        }
+        
+        if (!blob) {
+          throw new Error('Failed to obtain ZIP blob from any source');
+        }
+        
+        try {
+          const zip = await JSZip.loadAsync(blob);
           await processZipContents(zip);
+        } catch (zipError) {
+          console.error('JSZip error:', zipError);
+          console.error('ZIP blob size:', blob.size);
+          
+          // Try to read the first few bytes to verify the format
+          const arrayBuffer = await blob.slice(0, Math.min(blob.size, 1000)).arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          const isPK = bytes[0] === 0x50 && bytes[1] === 0x4B;
+          
+          if (!isPK) {
+            // Try to get text content to see if it's an error message
+            try {
+              const text = await blob.text();
+              console.error('Content (not a ZIP):', text.substring(0, 300) + '...');
+              throw new Error(`Invalid ZIP format: ${zipError.message}. Content appears to be: ${text.substring(0, 100)}...`);
+            } catch (textError) {
+              throw new Error(`Invalid ZIP format: ${zipError.message}. Unable to read content.`);
+            }
+          } else {
+            throw new Error(`ZIP parsing error: ${zipError.message}`);
+          }
         }
       } catch (err) {
         console.error('Error loading ZIP:', err);
@@ -91,7 +136,17 @@ export function useZipTree(zipUrl: string | null) {
       const fileTreeObj: Record<string, TreeNode> = {};
       const fileContents: Record<string, string> = {};
       
-      const promises = Object.keys(zip.files).map(async (path) => {
+      const zipFiles = Object.keys(zip.files);
+      console.log(`Processing ${zipFiles.length} files in ZIP`);
+      
+      if (zipFiles.length === 0) {
+        console.warn('ZIP file contains no files');
+        setTree([]);
+        setFiles({});
+        return;
+      }
+      
+      const promises = zipFiles.map(async (path) => {
         const zipObj = zip.files[path];
         
         if (zipObj.dir) return;
@@ -132,6 +187,8 @@ export function useZipTree(zipUrl: string | null) {
       const rootNodes = Object.values(fileTreeObj).filter(node => {
         return !node.path.includes('/');
       });
+      
+      console.log(`Created ${rootNodes.length} root nodes in file tree`);
       
       const sortNodes = (nodes: TreeNode[] = []): TreeNode[] => {
         return [...nodes].sort((a, b) => {

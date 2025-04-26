@@ -1,8 +1,7 @@
-
 # minimal FastAPI wrapper around GPT-Engineer
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from subprocess import run, Popen, PIPE
 from pydantic import BaseModel
 import uuid, os, zipfile, shutil, json, asyncio
@@ -22,12 +21,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Check if necessary environment variables are set
+if not os.environ.get("SUPABASE_URL") or not os.environ.get("SUPABASE_SERVICE_ROLE_KEY"):
+    print("WARNING: SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY not set. Storage operations will fail.")
+
 # Initialize Supabase client with service role key
-supabase = create_client(
-    os.environ.get("SUPABASE_URL", ""),
-    os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
-    options={"auth": {"persist_session": False}}
-)
+try:
+    supabase = create_client(
+        os.environ.get("SUPABASE_URL", ""),
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY", ""),
+        options={"auth": {"persist_session": False}}
+    )
+    print("Supabase client initialized successfully")
+except Exception as e:
+    print(f"Error initializing Supabase client: {e}")
+    supabase = None
 
 class ProjectRequest(BaseModel):
     prompt: str = "Make me a cool game"
@@ -49,29 +57,73 @@ async def run_gpte(data: ProjectRequest):
     proj_dir = f"{BASE}/{job_id}"
     os.makedirs(proj_dir, exist_ok=True)
 
+    build_logs[job_id] = ["Starting new game generation..."]
+    
+    # Log the current working directory and file listing
+    cwd = os.getcwd()
+    build_logs[job_id].append(f"Current working directory: {cwd}")
+    
     # write prompt file
-    open(f"{proj_dir}/prompt", "w").write(prompt)
+    with open(f"{proj_dir}/prompt", "w") as f:
+        f.write(prompt)
+    build_logs[job_id].append(f"Prompt saved to {proj_dir}/prompt")
 
     # call GPT-Engineer
-    run(["gpte", proj_dir])
+    build_logs[job_id].append(f"Starting GPT-Engineer with prompt: {prompt[:100]}...")
+    proc = run(["gpte", proj_dir], capture_output=True, text=True)
+    if proc.returncode != 0:
+        error_msg = f"GPT-Engineer failed with exit code {proc.returncode}"
+        build_logs[job_id].append(error_msg)
+        build_logs[job_id].append(f"STDERR: {proc.stderr}")
+        return {"error": error_msg}
+    
+    build_logs[job_id].append("GPT-Engineer completed successfully")
+    build_logs[job_id].append("Creating ZIP file...")
 
     # zip the result
     zip_path = f"{proj_dir}.zip"
-    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, _, files in os.walk(proj_dir):
-            for f in files:
-                fp = os.path.join(root, f)
-                z.write(fp, fp.replace(proj_dir + "/", ""))
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+            for root, _, files in os.walk(proj_dir):
+                for f in files:
+                    fp = os.path.join(root, f)
+                    z.write(fp, fp.replace(proj_dir + "/", ""))
+        build_logs[job_id].append(f"ZIP created: {zip_path}")
+    except Exception as e:
+        error_msg = f"Failed to create ZIP: {str(e)}"
+        build_logs[job_id].append(error_msg)
+        return {"error": error_msg}
     
     # Verify zip file is valid
     if not zipfile.is_zipfile(zip_path):
-        return {"error": "Failed to create valid ZIP file"}
+        error_msg = "Failed to create valid ZIP file"
+        build_logs[job_id].append(error_msg)
+        return {"error": error_msg}
+
+    # Check zip content
+    try:
+        with zipfile.ZipFile(zip_path, "r") as z:
+            info = z.infolist()
+            build_logs[job_id].append(f"ZIP contains {len(info)} files")
+            if len(info) == 0:
+                error_msg = "ZIP file is empty"
+                build_logs[job_id].append(error_msg)
+                return {"error": error_msg}
+    except Exception as e:
+        error_msg = f"Error validating ZIP: {str(e)}"
+        build_logs[job_id].append(error_msg)
+        return {"error": error_msg}
 
     try:
+        # Check if supabase is initialized
+        if not supabase:
+            raise Exception("Supabase client not initialized")
+            
         # Upload zip to Supabase Storage
         with open(zip_path, "rb") as f:
             file_path = f"{job_id}.zip"
             file_content = f.read()  # Read file into memory before upload
+            build_logs[job_id].append(f"Uploading ZIP ({len(file_content)} bytes) to Supabase...")
             
             # Ensure the bucket exists (this will be handled by service role key)
             try:
@@ -83,10 +135,12 @@ async def run_gpte(data: ProjectRequest):
                 )
                 
                 if hasattr(upload_result, 'error') and upload_result.error:
-                    return {"error": str(upload_result.error)}
+                    raise Exception(str(upload_result.error))
+                    
+                build_logs[job_id].append("Upload to Supabase successful")
             except Exception as e:
-                print(f"Upload error: {str(e)}")
-                return {"error": f"Upload failed: {str(e)}"}
+                build_logs[job_id].append(f"Upload error: {str(e)}")
+                raise Exception(f"Upload failed: {str(e)}")
 
         # Get signed URL
         try:
@@ -96,16 +150,19 @@ async def run_gpte(data: ProjectRequest):
             )
             
             if hasattr(signed_url, 'error') and signed_url.error:
-                return {"error": str(signed_url.error)}
+                raise Exception(str(signed_url.error))
                 
+            build_logs[job_id].append("Signed URL created successfully")
             return {"jobId": job_id, "download": signed_url["signedURL"]}
         except Exception as e:
-            print(f"Signed URL error: {str(e)}")
+            build_logs[job_id].append(f"Signed URL error: {str(e)}")
             # Fallback to direct download if Supabase storage fails
+            build_logs[job_id].append("Using fallback direct download URL")
             return {"jobId": job_id, "download": f"/download/{job_id}"}
     except Exception as e:
-        print(f"Storage error: {str(e)}")
+        build_logs[job_id].append(f"Storage error: {str(e)}")
         # Fallback to direct download if Supabase storage fails
+        build_logs[job_id].append("Using fallback direct download URL")
         return {"jobId": job_id, "download": f"/download/{job_id}"}
 
 @app.post("/build")
@@ -275,20 +332,39 @@ async def get_status(job_id: str):
 async def download_zip(job_id: str):
     try:
         # Try to get a signed URL from Supabase
-        signed_result = supabase.storage.from_("game-builds").create_signed_url(
-            f"{job_id}.zip",
-            3600  # 1 hour expiry
-        )
+        if supabase:
+            try:
+                signed_result = supabase.storage.from_("game-builds").create_signed_url(
+                    f"{job_id}.zip",
+                    3600  # 1 hour expiry
+                )
+                
+                if hasattr(signed_result, 'error') and signed_result.error:
+                    raise Exception(f"Failed to get signed URL: {signed_result.error}")
+                    
+                return {"download": signed_result["signedURL"]}
+            except Exception as e:
+                print(f"Error getting signed URL: {e}")
+                # Fall through to direct file serving
         
-        if hasattr(signed_result, 'error') and signed_result.error:
-            raise Exception(f"Failed to get signed URL: {signed_result.error}")
-            
-        return {"download": signed_result["signedURL"]}
-    except Exception as e:
         # Fallback to serving the file directly
         zip_path = f"{BASE}/{job_id}.zip"
         if not os.path.exists(zip_path):
-            return {"error": f"ZIP file not found: {job_id}"}
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"ZIP file not found: {job_id}"}
+            )
+            
+        # Verify file is a valid ZIP
+        if not zipfile.is_zipfile(zip_path):
+            return JSONResponse(
+                status_code=500,
+                content={"error": f"Invalid ZIP file: {job_id}"}
+            )
+            
+        # Get file size for logging
+        file_size = os.path.getsize(zip_path)
+        print(f"Serving ZIP file {zip_path} ({file_size} bytes)")
             
         def iterfile():
             with open(zip_path, 'rb') as f:
@@ -298,6 +374,12 @@ async def download_zip(job_id: str):
             iterfile(),
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename={job_id}.zip"}
+        )
+    except Exception as e:
+        print(f"Error in download_zip: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"error": f"Failed to serve ZIP: {str(e)}"}
         )
 
 # Serve dist files

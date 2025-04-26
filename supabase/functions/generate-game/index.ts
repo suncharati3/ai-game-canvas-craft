@@ -1,3 +1,4 @@
+
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
 const RENDER_URL = Deno.env.get("RENDER_URL")!;
@@ -17,6 +18,12 @@ serve(async (req) => {
   const path = url.pathname.split('/').pop()
 
   try {
+    if (!RENDER_URL) {
+      throw new Error('RENDER_URL environment variable not set');
+    }
+
+    console.log('Path:', path);
+    
     if (path === 'generate') {
       const { prompt } = await req.json()
 
@@ -33,33 +40,43 @@ serve(async (req) => {
       // Log the Render URL to help with debugging
       console.log('Calling Render URL:', `${RENDER_URL}/run`);
 
-      // Call Render service
-      const response = await fetch(`${RENDER_URL}/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt })
-      })
+      try {
+        // Call Render service
+        const response = await fetch(`${RENDER_URL}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt })
+        })
 
-      // Add more detailed error logging
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Render service error:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        throw new Error(`AI service error: ${response.status} - ${errorText}`)
-      }
-
-      const data = await response.json()
-      
-      return new Response(
-        JSON.stringify(data),
-        { 
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          status: 200 
+        // Add more detailed error logging
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Render service error:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          });
+          throw new Error(`AI service error: ${response.status} - ${errorText}`)
         }
-      )
+
+        const data = await response.json()
+        console.log('Generated game data:', data);
+        
+        if (data.error) {
+          console.error('Game generation failed:', data.error);
+        }
+        
+        return new Response(
+          JSON.stringify(data),
+          { 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            status: 200 
+          }
+        )
+      } catch (error) {
+        console.error('Error calling Render service:', error);
+        throw new Error(`Failed to connect to AI service: ${error.message}`);
+      }
     } 
     else if (path === 'build') {
       const { jobId } = await req.json()
