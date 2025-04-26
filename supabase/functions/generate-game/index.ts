@@ -66,6 +66,14 @@ serve(async (req) => {
           console.error('Game generation failed:', data.error);
         }
         
+        // Make sure we return the full signed URL from the Render service
+        // instead of a relative path
+        if (data.download && data.download.startsWith('/tmp')) {
+          // This is a path in the server, we need to modify the response
+          // to include a proper download link
+          data.download = `${RENDER_URL}/download/${data.jobId}`;
+        }
+        
         return new Response(
           JSON.stringify(data),
           { 

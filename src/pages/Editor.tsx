@@ -7,6 +7,7 @@ import { EditorHeader } from "@/components/editor/editor-header";
 import { EditorLayout } from "@/components/editor/editor-layout";
 import { ChatInterface } from "@/components/editor/chat-interface";
 import { generateGame, buildGame, improveGame, getGameLogs } from "@/services/ai-service";
+import { supabase } from "@/integrations/supabase/client";
 
 interface Message {
   id: string;
@@ -59,7 +60,40 @@ const Editor = () => {
       try {
         setBuildLogs(prev => [...prev, `Initializing editor with job ID: ${jobId}`]);
         
-        setZipUrl(`/download/${jobId}`);
+        // Try to get a signed URL from Supabase for this job ID
+        try {
+          const { data: signedData, error: signedError } = await supabase.storage
+            .from('game-builds')
+            .createSignedUrl(`${jobId}.zip`, 3600);
+          
+          if (signedData && !signedError) {
+            setBuildLogs(prev => [...prev, `Got signed URL for ${jobId}.zip`]);
+            setZipUrl(signedData.signedUrl);
+          } else {
+            console.warn('Could not get signed URL:', signedError);
+            
+            // Fall back to the Supabase function
+            const { data: funcData, error: funcError } = await supabase.functions.invoke('generate-game/download', {
+              body: { jobId }
+            });
+            
+            if (funcData && funcData.download && !funcError) {
+              setBuildLogs(prev => [...prev, `Got download URL from function: ${funcData.download}`]);
+              setZipUrl(funcData.download);
+            } else {
+              console.warn('Could not get download URL from function:', funcError);
+              
+              // Last resort
+              setBuildLogs(prev => [...prev, `Using direct download URL: /download/${jobId}`]);
+              // Use a fully qualified URL if we have the RENDER_URL, otherwise a relative path
+              setZipUrl(`/download/${jobId}`);
+            }
+          }
+        } catch (err) {
+          console.error('Error getting signed URL:', err);
+          setBuildLogs(prev => [...prev, `Error getting signed URL: ${err}`]);
+          setZipUrl(`/download/${jobId}`);
+        }
         
         const aiMessage: Message = {
           id: Date.now().toString(),

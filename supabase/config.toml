@@ -1,1 +1,21 @@
+
+# This file is used to configure your Supabase project's functions.
 project_id = "fnukymxxxcbjbqzzjzli"
+
+[functions.generate-game]
+verify_jwt = false
+
+[functions.generate-game.paths.generate]
+verify_jwt = false
+
+[functions.generate-game.paths.build]
+verify_jwt = false
+
+[functions.generate-game.paths.improve]
+verify_jwt = false
+
+[functions.generate-game.paths.logs]
+verify_jwt = false
+
+[functions.generate-game.paths.download]
+verify_jwt = false

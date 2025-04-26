@@ -32,28 +32,57 @@ export function useZipTree(zipUrl: string | null) {
         
         let blob: Blob | null = null;
         
-        if (zipUrl.includes('/download/')) {
-          // This is a route to our own server
+        if (zipUrl.startsWith('http')) {
+          // This is a full URL, likely from Render or Supabase
           const response = await fetch(zipUrl);
+          
+          if (!response.ok) {
+            console.error('URL fetch failed:', response.status, response.statusText);
+            const errorText = await response.text();
+            console.error('Error details:', errorText.substring(0, 200));
+            throw new Error(`HTTP error from URL: ${response.status}`);
+          }
+          
+          blob = await response.blob();
+          console.log('ZIP blob size from URL:', blob.size);
+          
+          if (blob.size === 0) {
+            throw new Error('Empty ZIP file received from URL');
+          }
+        }
+        else if (zipUrl.includes('/download/')) {
+          // Handle relative URL that needs to be fetched from our Render service
+          // We need to use the full RENDER_URL here, but we don't have it in the frontend
+          // Let's use the Supabase function as a proxy
+          const jobId = zipUrl.split('/download/')[1];
+          
+          if (!jobId) {
+            throw new Error('Invalid download URL format');
+          }
+          
+          console.log('Fetching download using job ID:', jobId);
+          
+          const { data, error: functionError } = await supabase.functions.invoke('generate-game/download', {
+            body: { jobId }
+          });
+          
+          if (functionError || !data || !data.download) {
+            console.error('Function error:', functionError || 'No data returned');
+            throw new Error('Failed to get download URL from Supabase function');
+          }
+          
+          // Now fetch the actual ZIP from the returned URL
+          const downloadUrl = data.download;
+          console.log('Got download URL:', downloadUrl);
+          
+          const response = await fetch(downloadUrl);
           
           if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
           }
           
           blob = await response.blob();
-          console.log('ZIP blob size from server:', blob.size);
-          
-          if (blob.size === 0) {
-            throw new Error('Empty ZIP file received from server');
-          }
-          
-          // Verify it's a ZIP file by checking the first bytes
-          const bytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
-          if (bytes[0] !== 0x50 || bytes[1] !== 0x4B) { // ZIP magic number "PK"
-            const text = await blob.text();
-            console.error('Not a ZIP file. Content:', text.substring(0, 200) + '...');
-            throw new Error('Invalid ZIP format: file does not start with ZIP signature');
-          }
+          console.log('ZIP blob size:', blob.size);
         }
         else if (zipUrl.includes('sign/game-builds')) {
           // This is a signed Supabase URL
@@ -75,7 +104,10 @@ export function useZipTree(zipUrl: string | null) {
         }
         else {
           // Try to load from Supabase using path
-          const path = zipUrl.split('game-builds/')[1];
+          const path = zipUrl.includes('game-builds/') 
+            ? zipUrl.split('game-builds/')[1] 
+            : zipUrl;
+            
           if (!path) {
             throw new Error('Invalid storage path');
           }
@@ -96,6 +128,14 @@ export function useZipTree(zipUrl: string | null) {
         
         if (!blob) {
           throw new Error('Failed to obtain ZIP blob from any source');
+        }
+        
+        // Verify it's a ZIP file by checking the first bytes
+        const bytes = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+        if (bytes[0] !== 0x50 || bytes[1] !== 0x4B) { // ZIP magic number "PK"
+          const text = await blob.text();
+          console.error('Not a ZIP file. Content:', text.substring(0, 200) + '...');
+          throw new Error('Invalid ZIP format: file does not start with ZIP signature');
         }
         
         try {
@@ -127,6 +167,8 @@ export function useZipTree(zipUrl: string | null) {
         console.error('Error loading ZIP:', err);
         toast.error(`Failed to load project files: ${err instanceof Error ? err.message : String(err)}`);
         setError(err instanceof Error ? err : new Error(String(err)));
+        setTree([]);
+        setFiles({});
       } finally {
         setLoading(false);
       }

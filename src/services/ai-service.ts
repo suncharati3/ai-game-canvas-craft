@@ -46,6 +46,12 @@ export async function generateGame(prompt: string): Promise<GenerationResponse> 
     }
 
     console.log('Game generation successful:', data);
+    
+    // The download URL should now be a complete URL, not a relative path
+    if (data.download && !data.download.startsWith('http')) {
+      console.warn('Download URL is not absolute, may cause issues:', data.download);
+    }
+    
     return data;
   } catch (error) {
     console.error('Error in generateGame:', error);
