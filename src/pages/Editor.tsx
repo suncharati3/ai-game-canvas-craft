@@ -1,0 +1,263 @@
+
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { GamePreview } from "@/components/editor/game-preview";
+import { ChatInterface } from "@/components/editor/chat-interface";
+import { ControlPanel } from "@/components/editor/control-panel";
+import { ArrowLeft } from "lucide-react";
+
+interface Message {
+  id: string;
+  content: string;
+  isUser: boolean;
+  timestamp: Date;
+}
+
+// Mock game code generation
+const generateGameCode = (): string => {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Game Preview</title>
+  <style>
+    body { margin: 0; overflow: hidden; }
+    canvas { display: block; }
+    #info {
+      position: absolute;
+      top: 10px;
+      width: 100%;
+      text-align: center;
+      color: white;
+      font-family: sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="info">Use WASD keys to move the cube</div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script>
+    // Set up scene
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x333333);
+    
+    // Set up camera
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.z = 5;
+    
+    // Set up renderer
+    const renderer = new THREE.WebGLRenderer();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+    
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+    
+    // Create player cube
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshPhongMaterial({ color: 0x9b87f5 });
+    const cube = new THREE.Mesh(geometry, material);
+    scene.add(cube);
+    
+    // Handle keyboard input
+    const keys = { w: false, a: false, s: false, d: false };
+    document.addEventListener('keydown', (e) => {
+      if (keys.hasOwnProperty(e.key.toLowerCase())) {
+        keys[e.key.toLowerCase()] = true;
+      }
+    });
+    document.addEventListener('keyup', (e) => {
+      if (keys.hasOwnProperty(e.key.toLowerCase())) {
+        keys[e.key.toLowerCase()] = false;
+      }
+    });
+    
+    // Game loop
+    function animate() {
+      requestAnimationFrame(animate);
+      
+      // Handle movement
+      if (keys.w) cube.position.y += 0.05;
+      if (keys.s) cube.position.y -= 0.05;
+      if (keys.a) cube.position.x -= 0.05;
+      if (keys.d) cube.position.x += 0.05;
+      
+      // Animate cube
+      cube.rotation.x += 0.01;
+      cube.rotation.y += 0.01;
+      
+      renderer.render(scene, camera);
+    }
+    
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+    
+    // Start animation loop
+    animate();
+  </script>
+</body>
+</html>
+  `;
+};
+
+// Initialize with welcome messages
+const initialMessages: Message[] = [
+  {
+    id: "1",
+    content: "Welcome to the Game Editor! I'll help you build your game.",
+    isUser: false,
+    timestamp: new Date()
+  },
+  {
+    id: "2",
+    content: "I've generated a basic game with WASD movement controls. Try running it and then you can ask me to make changes.",
+    isUser: false,
+    timestamp: new Date()
+  }
+];
+
+const Editor = () => {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [isRunning, setIsRunning] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [gameCode, setGameCode] = useState<string>("");
+  const navigate = useNavigate();
+  
+  // Retrieve data from session storage
+  useEffect(() => {
+    const prompt = sessionStorage.getItem("gamePrompt");
+    const diagram = sessionStorage.getItem("gameDiagram");
+    
+    if (!prompt || !diagram) {
+      toast.error("Game data not found. Redirecting to home page...");
+      navigate("/");
+      return;
+    }
+    
+    // Initialize with generated game code
+    const code = generateGameCode();
+    setGameCode(code);
+    
+  }, [navigate]);
+  
+  const handleToggleRunning = () => {
+    setIsRunning(prevState => !prevState);
+    if (!isRunning) {
+      toast.success("Game preview started!");
+    }
+  };
+  
+  const handleSaveProject = async () => {
+    setIsSaving(true);
+    try {
+      // Mock saving process
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      toast.success("Project saved successfully!");
+    } catch (error) {
+      toast.error("Failed to save project. Please try again.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
+  const handleSendMessage = async (message: string) => {
+    // Add user message
+    const userMessage: Message = {
+      id: Date.now().toString(),
+      content: message,
+      isUser: true,
+      timestamp: new Date()
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setIsProcessing(true);
+    
+    try {
+      // Mock AI response delay
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      // Add AI response
+      const aiMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        content: `I'll implement your request: "${message}". For now, this is a demo with pre-built responses.`,
+        isUser: false,
+        timestamp: new Date()
+      };
+      
+      setMessages(prev => [...prev, aiMessage]);
+    } catch (error) {
+      toast.error("Failed to process your request. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  return (
+    <div className="min-h-screen flex flex-col">
+      {/* Header */}
+      <header className="p-4 border-b border-slate-800 flex items-center justify-between">
+        <div className="flex items-center">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="mr-4"
+            onClick={() => navigate("/")}
+          >
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Back
+          </Button>
+          <h1 className="text-xl font-bold game-gradient-text">Game Editor</h1>
+        </div>
+      </header>
+      
+      {/* Main Content */}
+      <div className="flex-1 grid grid-cols-12 gap-4 p-4">
+        {/* Control Panel */}
+        <div className="col-span-1">
+          <ControlPanel
+            onSave={handleSaveProject}
+            onCodeView={() => setActiveTab("code")}
+            onSettingsView={() => setActiveTab("settings")}
+            onFilesView={() => setActiveTab("files")}
+            onDashboardView={() => setActiveTab("dashboard")}
+            isSaving={isSaving}
+            activeTab={activeTab}
+          />
+        </div>
+        
+        {/* Game Preview */}
+        <div className="col-span-7 h-[calc(100vh-130px)]">
+          <GamePreview 
+            isRunning={isRunning} 
+            onToggleRunning={handleToggleRunning}
+            previewCode={gameCode}
+          />
+        </div>
+        
+        {/* Chat Interface */}
+        <div className="col-span-4 h-[calc(100vh-130px)]">
+          <ChatInterface
+            onSendMessage={handleSendMessage}
+            isProcessing={isProcessing}
+            messages={messages}
+          />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Editor;
