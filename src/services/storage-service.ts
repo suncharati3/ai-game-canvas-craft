@@ -1,20 +1,19 @@
-
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
 export async function ensureStorageBucketExists(): Promise<boolean> {
   try {
-    console.log("Checking if storage bucket exists...");
+    console.log("Checking storage bucket access...");
     
     const { data: bucketData, error: bucketError } = await supabase.storage
       .getBucket('game-builds');
     
     if (!bucketError && bucketData) {
-      console.log("Storage bucket 'game-builds' exists");
+      console.log("Storage bucket 'game-builds' is accessible");
       return true;
     }
     
-    console.log("Storage bucket 'game-builds' not found or error checking");
+    console.error("Error accessing storage bucket:", bucketError);
     return false;
   } catch (error) {
     console.error("Error checking storage bucket:", error);
