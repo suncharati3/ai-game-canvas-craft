@@ -7,9 +7,10 @@ import { toast } from "sonner";
 
 interface AIGenerationProps {
   onGenerate: (prompt: string) => Promise<void>;
+  disabled?: boolean;
 }
 
-export function AIGeneration({ onGenerate }: AIGenerationProps) {
+export function AIGeneration({ onGenerate, disabled = false }: AIGenerationProps) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [prompt, setPrompt] = useState("");
 
@@ -37,11 +38,11 @@ export function AIGeneration({ onGenerate }: AIGenerationProps) {
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="Describe your game idea..."
-          disabled={isGenerating}
+          disabled={isGenerating || disabled}
         />
         <Button 
           onClick={handleGenerate}
-          disabled={isGenerating || !prompt.trim()}
+          disabled={isGenerating || disabled || !prompt.trim()}
         >
           {isGenerating ? (
             <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />

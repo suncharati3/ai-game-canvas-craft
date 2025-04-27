@@ -6,7 +6,7 @@ import { ensureStorageBucketExists } from "@/services/storage-service";
 import { generateGame, getGameLogs } from "@/services/ai-service";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { ReloadIcon } from "@radix-ui/react-icons";
+import { Loader2 } from "lucide-react";
 
 interface Message {
   id: string;
@@ -165,7 +165,7 @@ const Index = () => {
               {isInitializingStorage && (
                 <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
                   <div className="flex items-center">
-                    <ReloadIcon className="h-4 w-4 mr-2 animate-spin" />
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                     <p className="text-yellow-800">Initializing storage... Some features may be limited until this completes.</p>
                   </div>
                 </div>
@@ -180,7 +180,7 @@ const Index = () => {
                     onClick={retryStorageInitialization}
                     className="flex items-center gap-2"
                   >
-                    <ReloadIcon className="h-4 w-4" />
+                    <Loader2 className="h-4 w-4" />
                     Retry Initialization
                   </Button>
                 </div>
