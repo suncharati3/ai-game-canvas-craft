@@ -4,40 +4,32 @@ import { toast } from "sonner";
 
 export async function ensureStorageBucketExists(): Promise<boolean> {
   try {
-    console.log("Ensuring storage bucket exists...");
+    console.log("Checking if storage bucket exists...");
     
-    // First check if the bucket exists
-    try {
-      const { data: bucketData, error: bucketError } = await supabase.storage.getBucket('game-builds');
-      
-      if (!bucketError && bucketData) {
-        console.log("Storage bucket 'game-builds' already exists");
-        return true;
-      }
-    } catch (err) {
-      console.log("Error checking if bucket exists, will try to create it");
+    const { data: bucketData, error: bucketError } = await supabase.storage
+      .getBucket('game-builds');
+    
+    if (!bucketError && bucketData) {
+      console.log("Storage bucket 'game-builds' exists");
+      return true;
     }
     
-    // If we get here, try to create the bucket using our edge function
-    const { data, error } = await supabase.functions.invoke('generate-game/create-bucket');
-    
-    if (error) {
-      console.error("Error ensuring storage bucket exists:", error);
-      return false;
-    }
-    
-    console.log("Storage bucket creation response:", data);
-    return true;
+    console.log("Storage bucket 'game-builds' not found or error checking");
+    return false;
   } catch (error) {
-    console.error("Error ensuring storage bucket exists:", error);
+    console.error("Error checking storage bucket:", error);
     return false;
   }
 }
 
 export async function uploadGameZip(jobId: string, zipFile: File): Promise<string | null> {
   try {
-    // Ensure bucket exists
-    await ensureStorageBucketExists();
+    // Check bucket exists before upload
+    const bucketExists = await ensureStorageBucketExists();
+    if (!bucketExists) {
+      toast.error("Storage is not properly configured");
+      return null;
+    }
     
     // Upload the zip file
     const { data, error } = await supabase.storage
@@ -49,6 +41,7 @@ export async function uploadGameZip(jobId: string, zipFile: File): Promise<strin
     
     if (error) {
       console.error("Error uploading zip file:", error);
+      toast.error("Failed to upload game files");
       return null;
     }
     
@@ -59,12 +52,14 @@ export async function uploadGameZip(jobId: string, zipFile: File): Promise<strin
     
     if (urlError) {
       console.error("Error creating signed URL:", urlError);
+      toast.error("Failed to generate download link");
       return null;
     }
     
     return urlData.signedUrl;
   } catch (error) {
     console.error("Error in uploadGameZip:", error);
+    toast.error("Failed to upload game files");
     return null;
   }
 }
@@ -80,23 +75,12 @@ export async function downloadGameZip(jobId: string): Promise<string | null> {
       return urlData.signedUrl;
     }
     
-    // If that fails, try the edge function
-    const { data, error } = await supabase.functions.invoke('generate-game/download', {
-      body: { jobId }
-    });
-    
-    if (error) {
-      console.error("Error getting download URL from edge function:", error);
-      
-      // Last resort: try direct URL from the Render service
-      // Use environment configuration or a fallback URL instead of Deno.env
-      const renderUrl = "https://ai-game-canvas-craft.onrender.com";
-      return `${renderUrl}/download/${jobId}`;
-    }
-    
-    return data?.download || null;
+    console.error("Error getting download URL:", urlError);
+    toast.error("Failed to generate download link");
+    return null;
   } catch (error) {
     console.error("Error in downloadGameZip:", error);
+    toast.error("Failed to download game files");
     return null;
   }
 }
