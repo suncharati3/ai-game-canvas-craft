@@ -1,3 +1,4 @@
+
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -5,6 +6,7 @@ export async function ensureStorageBucketExists(): Promise<boolean> {
   try {
     console.log("Checking storage bucket access...");
     
+    // First try to access the bucket directly
     const { data: bucketData, error: bucketError } = await supabase.storage
       .getBucket('game-builds');
     
@@ -14,7 +16,35 @@ export async function ensureStorageBucketExists(): Promise<boolean> {
     }
     
     console.error("Error accessing storage bucket:", bucketError);
-    return false;
+    
+    // If bucket doesn't exist or isn't accessible, call the create-bucket edge function
+    console.log("Attempting to create storage bucket via Edge Function...");
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('create-bucket', {
+        method: 'POST'
+      });
+      
+      if (error) {
+        console.error("Error creating bucket via Edge Function:", error);
+        toast.error("Failed to initialize storage");
+        return false;
+      }
+      
+      console.log("Bucket creation response:", data);
+      
+      if (data?.success) {
+        toast.success("Storage initialized successfully");
+        return true;
+      } else {
+        toast.error("Storage initialization failed");
+        return false;
+      }
+    } catch (edgeError) {
+      console.error("Edge function error:", edgeError);
+      toast.error("Failed to initialize storage");
+      return false;
+    }
   } catch (error) {
     console.error("Error checking storage bucket:", error);
     return false;

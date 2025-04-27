@@ -6,6 +6,7 @@ import { ensureStorageBucketExists } from "@/services/storage-service";
 import { generateGame, getGameLogs } from "@/services/ai-service";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { ReloadIcon } from "@radix-ui/react-icons";
 
 interface Message {
   id: string;
@@ -19,11 +20,13 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationLogs, setGenerationLogs] = useState<string[]>([]);
   const [storageBucketReady, setStorageBucketReady] = useState<boolean>(false);
+  const [isInitializingStorage, setIsInitializingStorage] = useState<boolean>(true);
   
   // Initialize storage bucket when the app starts
   useEffect(() => {
     const initializeStorage = async () => {
       try {
+        setIsInitializingStorage(true);
         // Try multiple times in case of network issues
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
@@ -31,6 +34,7 @@ const Index = () => {
             if (result) {
               console.log("Storage bucket initialized successfully");
               setStorageBucketReady(true);
+              setIsInitializingStorage(false);
               break;
             } else {
               console.warn(`Failed to initialize storage bucket (attempt ${attempt + 1})`);
@@ -47,16 +51,42 @@ const Index = () => {
             }
           }
         }
+        // Even if all attempts failed, stop showing the initializing state after reasonable time
+        setIsInitializingStorage(false);
       } catch (err) {
         console.error("Error initializing storage:", err);
         toast.error("Could not initialize storage. Some features may not work correctly.");
+        setIsInitializingStorage(false);
       }
     };
     
     initializeStorage();
   }, []);
   
+  const retryStorageInitialization = async () => {
+    setIsInitializingStorage(true);
+    try {
+      const result = await ensureStorageBucketExists();
+      if (result) {
+        setStorageBucketReady(true);
+        toast.success("Storage initialized successfully");
+      } else {
+        toast.error("Failed to initialize storage");
+      }
+    } catch (error) {
+      console.error("Error initializing storage:", error);
+      toast.error("Could not initialize storage");
+    } finally {
+      setIsInitializingStorage(false);
+    }
+  };
+  
   const handleGenerateGame = async (prompt: string) => {
+    if (!storageBucketReady) {
+      toast.warning("Storage is not ready. Please wait or retry initialization.");
+      return;
+    }
+    
     setIsGenerating(true);
     setGenerationLogs([`Starting generation with prompt: "${prompt}"...`]);
     
@@ -132,13 +162,34 @@ const Index = () => {
             </p>
             
             <div className="glass-panel p-6 mb-8">
-              {!storageBucketReady && (
+              {isInitializingStorage && (
                 <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-md">
-                  <p className="text-yellow-800">Initializing storage... Some features may be limited until this completes.</p>
+                  <div className="flex items-center">
+                    <ReloadIcon className="h-4 w-4 mr-2 animate-spin" />
+                    <p className="text-yellow-800">Initializing storage... Some features may be limited until this completes.</p>
+                  </div>
                 </div>
               )}
               
-              <AIGeneration onGenerate={handleGenerateGame} />
+              {!isInitializingStorage && !storageBucketReady && (
+                <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-md">
+                  <p className="text-orange-800 mb-2">Storage initialization failed. Some features may not work correctly.</p>
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={retryStorageInitialization}
+                    className="flex items-center gap-2"
+                  >
+                    <ReloadIcon className="h-4 w-4" />
+                    Retry Initialization
+                  </Button>
+                </div>
+              )}
+              
+              <AIGeneration 
+                onGenerate={handleGenerateGame}
+                disabled={isInitializingStorage || !storageBucketReady || isGenerating}
+              />
               
               {isGenerating && (
                 <div className="mt-8">
